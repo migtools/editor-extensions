@@ -8,7 +8,6 @@ declare const __BUILD_TIMESTAMP__: string;
 
 import { join } from "path";
 import { readFileSync } from "fs";
-
 export const KONVEYOR_SCHEME = "konveyorMemFs";
 export const KONVEYOR_READ_ONLY_SCHEME = "konveyorReadOnly";
 export const RULE_SET_DATA_FILE_PREFIX = "analysis";
