@@ -30,7 +30,7 @@ export const EXTENSION_ID = `${EXTENSION_PUBLISHER}.${EXTENSION_NAME}`;
 // Convenience: Version with git info for debugging
 export const BUILD_INFO = `v${EXTENSION_VERSION} ${BUILD_GIT_SHA} (${BUILD_TIMESTAMP})`;
 
-// Also support runtime loading from package.json as fallback
-const packagePath = join(__dirname, "..", "..", "package.json");
+// Read from package.json copied to out directory by webpack
+const packagePath = join(__dirname, "..", "package.json");
 const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
 export const PACKAGE_NAME = packageJson.name;
