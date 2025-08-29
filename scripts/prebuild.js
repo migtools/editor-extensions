@@ -11,8 +11,8 @@ const __dirname = path.dirname(__filename);
 const packagePath = path.join(__dirname, "../vscode/package.json");
 const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 
-// Use the package name to determine branding
-const extensionName = packageJson.name;
+// Use the package name to determine branding, but override to 'mta' for MTA builds
+const extensionName = "mta";
 const displayName = extensionName.toUpperCase();
 
 console.log(`🔄 Running prebuild for ${extensionName}...`);
@@ -29,6 +29,7 @@ const brandWordRegex = new RegExp(`\\b(${brandPattern})(?=\\s|$)`, "gi");
 
 // Apply branding transformations
 Object.assign(packageJson, {
+  name: extensionName,
   displayName: `${displayName} Extension for VSCode`,
   description:
     extensionName === "mta"
