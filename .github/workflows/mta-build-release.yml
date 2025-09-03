@@ -109,9 +109,10 @@ jobs:
         if: ${{ inputs.upload_artifacts != false }}
         uses: actions/upload-artifact@v4
         with:
-          name: mta-vsix-${{ steps.package_info.outputs.package_version }}
+          name: ${{ steps.package_info.outputs.vsix_file }}
           path: ${{ steps.package_info.outputs.vsix_path }}
           retention-days: 30
+          compression-level: 0 # No compression since VSIX is already compressed
 
       - name: Create GitHub Release (on tag)
         if: startsWith(github.ref, 'refs/tags/')
