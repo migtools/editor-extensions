@@ -12,6 +12,9 @@ on:
     tags:
       - "mta-*"
       - "v*-mta"
+  release:
+    types:
+      - published
 
 concurrency:
   group: mta-build-${{ github.event_name }}-${{ github.ref }}
@@ -113,6 +116,32 @@ jobs:
           path: ${{ steps.package_info.outputs.vsix_path }}
           retention-days: 30
           compression-level: 0 # No compression since VSIX is already compressed
+      - name: Release context
+        if: ${{ github.event_name == 'release' }}
+        run: |
+          echo "event_name=${{ github.event_name }}"
+          echo "event_action=${{ github.event.action }}"
+          echo "release.tag_name=${{ github.event.release.tag_name }}"
+          echo "release.prerelease=${{ github.event.release.prerelease }}"
+          echo "ref=${{ github.ref }}"
+          echo "ref_name=${{ github.ref_name }}"
+          echo "repository=${{ github.repository }}"
+          echo "repository_owner=${{ github.repository_owner }}"
+
+      - name: Set up Node.js for publishing
+        if: ${{ github.repository_owner == 'migtools' && github.event_name == 'release' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Publish to VS Code Marketplace (release)
+        if: ${{ github.event_name == 'release' && github.event.action == 'published' && github.event.release.prerelease == 'false' && github.repository_owner == 'migtools' }}
+        run: |
+          echo "Publishing v${{ steps.package_info.outputs.vsix_file }}.vsix"
+          echo "File path: ${{ steps.package_info.outputs.vsix_path }}"
+          echo "Repository owner: ${{ github.repository_owner }}"
+          echo "Event name: ${{ github.event_name }}"
+          npx vsce publish --packagePath ${{ steps.package_info.outputs.vsix_file }}.vsix --pat ${{ secrets.VSCODE_MARKETPLACE_TOKEN }}
 
       - name: Create GitHub Release (on tag)
         if: startsWith(github.ref, 'refs/tags/')
