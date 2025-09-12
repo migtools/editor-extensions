@@ -1,4 +1,4 @@
-# Developer Lightspeed for Migration Toolkit for Applications (MTA)
+# Migration Toolkit for Applications (MTA)
 
 A powerful VS Code extension for application modernization and migration analysis. Leverages a rule-based analysis engine to identify modernization opportunities and optionally uses generative AI to help migrate applications to newer platforms or architectures.
 
@@ -7,10 +7,15 @@ A powerful VS Code extension for application modernization and migration analysi
 ## Features
 
 - **Code Analysis**: Comprehensive analysis of your codebase for modernization opportunities
-- **AI-Powered Solutions**: Optional generative AI integration for automated fix suggestions
-- **Agent Mode**: Experimental automated fixes with diagnostics integration
 - **Customizable Rules**: Configure analysis settings, rulesets, and filters
 - **Interactive UI**: Dedicated views for analysis results and solution management
+
+### Developer Lightspeed for migration toolkit for applications features
+
+- **AI-Powered Solutions**: Optional generative AI integration for automated fix suggestions
+- **Agent Mode**: Experimental automated fixes with diagnostics integration
+
+*Note:  Obtaining support for features in Developer Lightspeed for migration toolkit for applications requires a Red Hat Advanced Developer Suite (RHADS) subscription.*
 
 ---
 
