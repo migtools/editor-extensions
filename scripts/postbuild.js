@@ -3,9 +3,35 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { extensionName, extensionShortName } from "./prebuild.js";
+import { extensionName, extensionShortName, extensionVersion } from "./prebuild.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+console.log(`🔍 Running postbuild for ${extensionName}...`);
+
+// First, update all workspace versions
+console.log(`📝 Updating all package.json versions to ${extensionVersion}...`);
+
+const workspaces = [
+  "../package.json",
+  "../extra-types/package.json",
+  "../shared/package.json",
+  "../webview-ui/package.json",
+  "../agentic/package.json",
+  "../vscode/package.json",
+];
+
+for (const workspacePath of workspaces) {
+  const fullPath = path.join(__dirname, workspacePath);
+  if (fs.existsSync(fullPath)) {
+    const workspacePackage = JSON.parse(fs.readFileSync(fullPath, "utf8"));
+    workspacePackage.version = extensionVersion;
+    fs.writeFileSync(fullPath, JSON.stringify(workspacePackage, null, 2));
+    console.log(`  ✅ Updated ${workspacePath}`);
+  }
+}
+
+console.log(`📝 Version updates complete!`);
 
 console.log(`🔍 Running postbuild verification for ${extensionName}...`);
 
@@ -226,7 +252,7 @@ console.log("🔍 Verifying README...");
 const readmePath = path.join(__dirname, "../vscode/README.md");
 if (fs.existsSync(readmePath)) {
   const readmeContent = fs.readFileSync(readmePath, "utf8");
-  if (readmeContent.includes("Developer Lightspeed for Migration Toolkit for Applications")) {
+  if (readmeContent.includes("Developer Lightspeed for migration toolkit")) {
     console.log(`  ✅ README contains proper branding`);
   } else {
     errors.push("README does not contain proper branding");
