@@ -15,6 +15,7 @@ const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 // Use the package name to determine branding, but override to 'mta' for MTA builds
 export const extensionName = "mta-vscode-extension";
 export const extensionShortName = "MTA";
+export const extensionVersion = "8.0.0";
 
 console.log(`🔄 Running prebuild for ${extensionName}...`);
 
@@ -185,9 +186,12 @@ Object.assign(packageJson, {
 });
 
 // Remove kai binary assets from package (they'll be downloaded at runtime)
-if (packageJson.includedAssetPaths?.kai) {
+// Keep them for CI/test builds to avoid timing issues
+if (packageJson.includedAssetPaths?.kai && !process.env.CI && !process.env.KEEP_KAI_BINARIES) {
   delete packageJson.includedAssetPaths.kai;
   console.log("✅ Removed kai binary assets from package (runtime download enabled)");
+} else if (packageJson.includedAssetPaths?.kai) {
+  console.log("✅ Keeping kai binary assets for CI/test build");
 }
 
 // Transform configuration properties
