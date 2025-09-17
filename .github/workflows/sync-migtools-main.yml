@@ -2,11 +2,6 @@ name: Sync with konveyor
 
 on:
   workflow_dispatch:
-    inputs:
-      branch:
-        description: "Branch to sync to"
-        required: true
-        default: "main"
     # Manual triggering only
 
 jobs:
@@ -37,15 +32,15 @@ jobs:
       - name: Add konveyor remote
         run: |
           git remote add konveyor https://github.com/konveyor/editor-extensions.git
-          git fetch konveyor ${{ inputs.branch }}
+          git fetch konveyor ${{ github.ref_name }}
 
       - name: Attempt rebase onto konveyor
         run: |
           echo "Current branch: $(git branch --show-current)"
-          echo "Attempting to rebase onto konveyor/${{ inputs.branch }}..."
+          echo "Attempting to rebase onto konveyor/${{ github.ref_name }}..."
 
           # This will fail hard if there are conflicts
-          git rebase konveyor/${{ inputs.branch }}
+          git rebase konveyor/${{ github.ref_name }}
 
           echo "Rebase successful!"
 
