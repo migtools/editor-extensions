@@ -22,8 +22,7 @@ A powerful VS Code extension for application modernization and migration analysi
 ## Quick Start
 
 1. Install the extension from the VS Code marketplace
-2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run "Welcome: Open Walkthrough"
-3. Follow the setup guide to configure your environment
+2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run "MTA: Open Analysis View"
 
 ---
 
