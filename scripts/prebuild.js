@@ -36,8 +36,8 @@ const PLATFORM_MAPPING = {
 
 // Binary names for each platform
 const PLATFORM_BINARY_NAMES = {
-  "linux-x64": "linux-mta-analyzer-rpc",
-  "linux-arm64": "linux-mta-analyzer-rpc",
+  "linux-x64": "mta-analyzer-rpc",
+  "linux-arm64": "mta-analyzer-rpc",
   "darwin-x64": "darwin-mta-analyzer-rpc",
   "darwin-arm64": "darwin-mta-analyzer-rpc",
   "win32-x64": "windows-mta-analyzer-rpc.exe",
@@ -186,13 +186,8 @@ Object.assign(packageJson, {
 });
 
 // Remove kai binary assets from package (they'll be downloaded at runtime)
-// Keep them for CI/test builds to avoid timing issues
-if (packageJson.includedAssetPaths?.kai && !process.env.CI && !process.env.KEEP_KAI_BINARIES) {
-  delete packageJson.includedAssetPaths.kai;
-  console.log("✅ Removed kai binary assets from package (runtime download enabled)");
-} else if (packageJson.includedAssetPaths?.kai) {
-  console.log("✅ Keeping kai binary assets for CI/test build");
-}
+delete packageJson.includedAssetPaths.kai;
+console.log("✅ Removed kai binary assets from package (runtime download enabled)");
 
 // Transform configuration properties
 if (packageJson.contributes?.configuration?.properties) {
