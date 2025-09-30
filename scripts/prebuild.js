@@ -22,7 +22,7 @@ console.log(`🔄 Running prebuild for ${extensionName}...`);
 // Generate fallback assets configuration
 console.log(`🔧 Generating fallback assets configuration...`);
 const FALLBACK_ASSETS_URL =
-  "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.0.0-Beta/";
+  "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.0.0/";
 
 // Platform mapping from VS Code naming to our expected naming
 const PLATFORM_MAPPING = {
@@ -40,8 +40,8 @@ const PLATFORM_BINARY_NAMES = {
   "linux-arm64": "mta-analyzer-rpc",
   "darwin-x64": "darwin-mta-analyzer-rpc",
   "darwin-arm64": "darwin-mta-analyzer-rpc",
-  "win32-x64": "windows-mta-analyzer-rpc.exe",
-  "win32-arm64": "windows-mta-analyzer-rpc.exe",
+  "win32-x64": "windows-mta-analyzer-rpc",
+  "win32-arm64": "windows-mta-analyzer-rpc",
 };
 
 async function fetchText(url) {
