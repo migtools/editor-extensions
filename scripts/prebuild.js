@@ -172,9 +172,9 @@ const brandWordRegex = new RegExp(`\\b(${brandPattern})(?=\\s|$)`, "gi");
 // Apply branding transformations
 Object.assign(packageJson, {
   name: extensionName,
-  displayName: "Developer Lightspeed for MTA",
+  displayName: "Migration toolkit for applications",
   description:
-    "Developer Lightspeed for Migration Toolkit for Applications (MTA) - An enterprise migration and modernization tool with generative AI",
+    "Migration toolkit for applications (MTA) - An enterprise migration and modernization tool with optional generative AI features",
   homepage: "https://developers.redhat.com/products/mta/overview",
   repository: {
     type: "git",
