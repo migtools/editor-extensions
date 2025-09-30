@@ -10,7 +10,7 @@ A powerful VS Code extension for application modernization and migration analysi
 - **Customizable Rules**: Configure analysis settings, rulesets, and filters
 - **Interactive UI**: Dedicated views for analysis results and solution management
 
-### Developer Lightspeed for migration toolkit for applications features
+### Red Hat Developer Lightspeed for migration toolkit for applications features
 
 - **AI-Powered Solutions**: Optional generative AI integration for automated fix suggestions
 - **Agent Mode**: Experimental automated fixes with diagnostics integration
