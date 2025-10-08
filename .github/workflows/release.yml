@@ -83,19 +83,35 @@ jobs:
         with:
           node-version-file: ".nvmrc"
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Publish to VS Code Marketplace
+        if: ${{ inputs.prerelease == false }}
+        run: |
+          echo "Publishing ${{ steps.vsix_info.outputs.vsix_path }}"
+          npx --no-install @vscode/vsce --version
+          if [ -f "./artifacts/release.md" ]; then
+            echo "Publishing with changelog"
+            npx --no-install @vscode/vsce publish --packagePath "${{ steps.vsix_info.outputs.vsix_path }}" --changelog-path "./artifacts/release.md"
+          else
+            echo "Publishing without changelog (file not found)"
+            npx --no-install @vscode/vsce publish --packagePath "${{ steps.vsix_info.outputs.vsix_path }}" 
+          fi
+        env:
+          VSCE_PAT: ${{ secrets.VSCODE_MARKETPLACE_TOKEN }}
+
+      - name: Publish to Open-vsx registery
         if: ${{ inputs.prerelease == false }}
         run: |
           echo "Publishing ${{ steps.vsix_info.outputs.vsix_path }}"
           if [ -f "./artifacts/release.md" ]; then
             echo "Publishing with changelog"
-            npx vsce publish --packagePath "${{ steps.vsix_info.outputs.vsix_path }}" --releaseNotes "./artifacts/release.md"
+            npx --no-install ovsx publish --packagePath "${{ steps.vsix_info.outputs.vsix_path }}" --changelog-path "./artifacts/release.md" --pat ${{ secrets.OVSX_MARKETPLACE_TOKEN }}
           else
-            echo "Publishing without changelog (file not found)"
-            npx vsce publish --packagePath "${{ steps.vsix_info.outputs.vsix_path }}"
+            echo "Publishing to  Open-vsx registery"
+            npx --no-install ovsx --packagePath "${{ steps.vsix_info.outputs.vsix_path }}" --pat ${{ secrets.OVSX_MARKETPLACE_TOKEN }}
           fi
-        env:
-          VSCE_PAT: ${{ secrets.VSCODE_MARKETPLACE_TOKEN }}
 
       - name: Create Release
         uses: ncipollo/release-action@v1
