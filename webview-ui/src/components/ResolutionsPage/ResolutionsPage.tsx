@@ -16,7 +16,14 @@ import { ReceivedMessage } from "./ReceivedMessage";
 import { ToolMessage } from "./ToolMessage";
 import { ModifiedFileMessage } from "./ModifiedFile";
 import { useExtensionStateContext } from "../../context/ExtensionStateContext";
-import { Chatbot, ChatbotContent, ChatbotDisplayMode, MessageBox } from "@patternfly/chatbot";
+import {
+  Chatbot,
+  ChatbotContent,
+  ChatbotDisplayMode,
+  ChatbotFootnote,
+  ChatbotFooter,
+  MessageBox,
+} from "@patternfly/chatbot";
 import { ChatCard } from "./ChatCard/ChatCard";
 import LoadingIndicator from "./LoadingIndicator";
 import { MessageWrapper } from "./MessageWrapper";
@@ -26,10 +33,8 @@ import { useScrollManagement } from "../../hooks/useScrollManagement";
 const useResolutionData = (state: any) => {
   const {
     chatMessages = [],
-    localChanges = [],
     solutionState = "none",
     solutionScope,
-    solutionData: resolution,
     isFetchingSolution = false,
     isAnalyzing,
   } = state;
@@ -50,13 +55,8 @@ const useResolutionData = (state: any) => {
   }, [solutionState, chatMessages]);
 
   const hasResponseWithErrors = useMemo(
-    () =>
-      solutionState === "received" &&
-      resolution !== undefined &&
-      resolution !== null &&
-      Array.isArray(resolution.encountered_errors) &&
-      resolution.encountered_errors?.length > 0,
-    [solutionState, resolution],
+    () => false, // No longer tracking solution response errors
+    [solutionState],
   );
 
   return {
@@ -64,9 +64,7 @@ const useResolutionData = (state: any) => {
     hasNothingToView,
     hasContent,
     hasResponseWithErrors,
-    resolution,
     chatMessages,
-    localChanges,
     isFetchingSolution,
     isAnalyzing,
     solutionState,
@@ -240,6 +238,17 @@ const ResolutionPage: React.FC = () => {
             {renderChatMessages()}
           </MessageBox>
         </ChatbotContent>
+        <ChatbotFooter>
+          <ChatbotFootnote
+            className="footnote"
+            label="Always review AI generated content prior to use."
+            popover={{
+              title: "Verify information",
+              description:
+                "AI is experimental and can make mistakes. We cannot guarantee that all information provided by AI is up to date or without error. You should always verify responses using reliable sources, especially for crucial information and decision making.",
+            }}
+          />
+        </ChatbotFooter>
       </Chatbot>
     </Page>
   );

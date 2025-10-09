@@ -74,17 +74,14 @@ class VsCodeExtension {
     );
     this.data = produce(
       {
-        localChanges: [],
         ruleSets: [],
         enhancedIncidents: [],
-        resolutionPanelData: undefined,
         isAnalyzing: false,
         isFetchingSolution: false,
         isStartingServer: false,
         isInitializingServer: false,
         isAnalysisScheduled: false,
         isContinueInstalled: false,
-        solutionData: undefined,
         serverState: "initial",
         solutionScope: undefined,
         workspaceRoot: paths.workspaceRepo.toString(true),
@@ -470,6 +467,16 @@ class VsCodeExtension {
             }
           }
 
+          if (event.affectsConfiguration(`${EXTENSION_NAME}.logLevel`)) {
+            this.state.logger.info("Log level configuration modified!");
+            const newLogLevel = getConfigLogLevel();
+            this.state.logger.level = newLogLevel;
+            for (const transport of this.state.logger.transports) {
+              transport.level = newLogLevel;
+            }
+            this.state.logger.info(`Log level changed to ${newLogLevel}`);
+          }
+
           if (event.affectsConfiguration("konveyor.analyzerPath")) {
             this.state.logger.info("Analyzer path configuration modified!");
 
@@ -609,7 +616,9 @@ class VsCodeExtension {
       const credentials = await checkAndPromptForCredentials(this.context, this.state.logger);
       if (!credentials) {
         this.state.mutateData((draft) => {
-          draft.configErrors.push(createConfigError.missingAuthCredentials());
+          if (!draft.configErrors.some((error) => error.type === "missing-auth-credentials")) {
+            draft.configErrors.push(createConfigError.missingAuthCredentials());
+          }
         });
         return;
       }
@@ -733,6 +742,31 @@ class VsCodeExtension {
       return;
     }
 
+    // Check version compatibility - versions > 1.45.0 have breaking changes
+    const version = javaExt.packageJSON?.version;
+    if (version) {
+      const versionParts = version.split(".").map(Number);
+      const major = versionParts[0] || 0;
+      const minor = versionParts[1] || 0;
+      const isIncompatible = major > 1 || (major === 1 && minor > 45);
+
+      if (isIncompatible) {
+        this.state.logger.error(`Incompatible Java extension version: ${version}`);
+        vscode.window
+          .showErrorMessage(
+            `Red Hat Java Language Support version ${version} is incompatible. ` +
+              `Please downgrade to version 1.45.0 or earlier. Versions above 1.45.0 contain breaking changes that prevent proper Java analysis.`,
+            "Show Extensions",
+          )
+          .then((selection) => {
+            if (selection === "Show Extensions") {
+              vscode.commands.executeCommand("workbench.extensions.search", "redhat.java");
+            }
+          });
+        return;
+      }
+    }
+
     if (!javaExt.isActive) {
       vscode.window.showInformationMessage(
         "The Java Language Support extension is installed but not yet active. " +
@@ -742,8 +776,20 @@ class VsCodeExtension {
   }
 
   private async setupModelProvider(settingsPath: vscode.Uri): Promise<ConfigError | undefined> {
+    const hadPreviousProvider = this.state.modelProvider !== undefined;
+
     // Check if GenAI is disabled via settings
     if (!getConfigGenAIEnabled()) {
+      this.state.modelProvider = undefined;
+      // Only dispose workflow if not fetching solution
+      if (
+        !this.state.data.isFetchingSolution &&
+        this.state.workflowManager &&
+        this.state.workflowManager.dispose
+      ) {
+        this.state.workflowManager.dispose();
+        this.state.workflowDisposalPending = false;
+      }
       return createConfigError.genaiDisabled();
     }
 
@@ -752,11 +798,22 @@ class VsCodeExtension {
       modelConfig = await parseModelConfig(settingsPath);
     } catch (err) {
       this.state.logger.error("Error getting model config:", err);
+      this.state.modelProvider = undefined;
+      // Only dispose workflow if not fetching solution
+      if (
+        !this.state.data.isFetchingSolution &&
+        this.state.workflowManager &&
+        this.state.workflowManager.dispose
+      ) {
+        this.state.workflowManager.dispose();
+        this.state.workflowDisposalPending = false;
+      }
 
       const configError = createConfigError.providerNotConfigured();
       configError.error = err instanceof Error ? err.message : String(err);
       return configError;
     }
+
     try {
       this.state.modelProvider = await getModelProviderFromConfig(
         modelConfig,
@@ -764,8 +821,40 @@ class VsCodeExtension {
         getConfigKaiDemoMode() ? getCacheDir(this.data.workspaceRoot) : undefined,
         getTraceEnabled() ? getTraceDir(this.data.workspaceRoot) : undefined,
       );
+
+      // Dispose workflow if we're changing an existing provider and not currently fetching
+      if (
+        hadPreviousProvider &&
+        !this.state.data.isFetchingSolution &&
+        this.state.workflowManager &&
+        this.state.workflowManager.dispose
+      ) {
+        this.state.logger.info("Disposing workflow manager - provider configuration changed");
+        this.state.workflowManager.dispose();
+        this.state.workflowDisposalPending = false;
+      } else if (hadPreviousProvider && this.state.data.isFetchingSolution) {
+        this.state.logger.info(
+          "Provider updated but workflow disposal deferred - solution in progress",
+        );
+        this.state.workflowDisposalPending = true;
+        vscode.window.showInformationMessage(
+          "Model provider updated. The new provider will be used for the next solution.",
+        );
+      }
+
+      return undefined;
     } catch (err) {
       this.state.logger.error("Error running model health check:", err);
+      this.state.modelProvider = undefined;
+      // Only dispose workflow if not fetching solution
+      if (
+        !this.state.data.isFetchingSolution &&
+        this.state.workflowManager &&
+        this.state.workflowManager.dispose
+      ) {
+        this.state.workflowManager.dispose();
+        this.state.workflowDisposalPending = false;
+      }
 
       const configError = createConfigError.providerConnnectionFailed();
       configError.error =
@@ -776,7 +865,6 @@ class VsCodeExtension {
           : String(err);
       return configError;
     }
-    return undefined;
   }
 
   public async dispose() {
@@ -869,6 +957,9 @@ export async function deactivate(): Promise<void> {
       //Disposal and lifecycle is handled by vertical diff manager
       extension.state.staticDiffAdapter = undefined;
     }
+
+    // Clean up any active webview panels
+    KonveyorGUIWebviewViewProvider.disposeAllPanels();
 
     // Clean up the main extension
     await extension?.dispose();
