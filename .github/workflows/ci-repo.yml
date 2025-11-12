@@ -360,9 +360,9 @@ jobs:
       - name: Cleanup old development builds
         run: |
           c=1
-          for i in $(gh release view -R konveyor/editor-extensions development-builds --json assets | jq -r .assets[].name | sort -r); do
+          for i in $(gh release view -R migtools/editor-extensions development-builds --json assets | jq -r .assets[].name | sort -r); do
             if [ "$c" -gt 7 ]; then
-              gh release delete-asset -y -R konveyor/editor-extensions development-builds $i
+              gh release delete-asset -y -R migtools/editor-extensions development-builds $i
             fi
             c=$((c+1))
           done
