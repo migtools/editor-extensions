@@ -1,0 +1,151 @@
+name: MTA Build & Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_artifacts:
+        description: "Upload artifacts as workflow artifacts"
+        required: false
+        default: true
+        type: boolean
+  push:
+    tags:
+      - "mta-*"
+      - "v*-mta"
+
+concurrency:
+  group: mta-build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0
+
+jobs:
+  build-mta-extension:
+    name: Build MTA Extension
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.MIGTOOLS_BOT_ID }}
+          private-key: ${{ secrets.MIGTOOLS_BOT_KEY }}
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Get upstream Konveyor SHA
+        id: upstream_sha
+        run: |
+          # Add konveyor remote if it doesn't exist
+          git remote add konveyor https://github.com/konveyor/editor-extensions.git 2>/dev/null || true
+          git fetch konveyor main
+
+          # Find the merge base (last common commit) between current branch and konveyor/main
+          UPSTREAM_SHA=$(git merge-base HEAD konveyor/main)
+          UPSTREAM_SHA_SHORT=$(git rev-parse --short $UPSTREAM_SHA)
+
+          echo "upstream_sha=${UPSTREAM_SHA}" >> $GITHUB_OUTPUT
+          echo "upstream_sha_short=${UPSTREAM_SHA_SHORT}" >> $GITHUB_OUTPUT
+
+          echo "## Upstream Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Upstream SHA**: [\`${UPSTREAM_SHA_SHORT}\`](https://github.com/konveyor/editor-extensions/commit/${UPSTREAM_SHA})" >> $GITHUB_STEP_SUMMARY
+          echo "- **Downstream SHA**: [\`${GITHUB_SHA:0:7}\`](https://github.com/${{ github.repository }}/commit/${GITHUB_SHA})" >> $GITHUB_STEP_SUMMARY
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Collect runtime assets
+        run: npm run collect-assets
+
+      - name: Build all workspaces
+        run: npm run build
+        env:
+          UPSTREAM_GIT_SHA: ${{ steps.upstream_sha.outputs.upstream_sha }}
+
+      - name: Create distribution package
+        run: npm run dist
+
+      - name: Package VSIX
+        run: npm run package
+
+      - name: Get package info
+        id: package_info
+        run: |
+          PACKAGE_NAME=$(node -p "require('./dist/package.json').name")
+          PACKAGE_VERSION=$(node -p "require('./dist/package.json').version")
+          VSIX_FILE="${PACKAGE_NAME}-${PACKAGE_VERSION}.vsix"
+
+          # Create build metadata
+          BUILD_INFO="Built from konveyor/editor-extensions@${{ steps.upstream_sha.outputs.upstream_sha_short }}"
+
+          echo "package_name=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "package_version=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
+          echo "vsix_file=${VSIX_FILE}" >> $GITHUB_OUTPUT
+          echo "vsix_path=./dist/${VSIX_FILE}" >> $GITHUB_OUTPUT
+          echo "build_info=${BUILD_INFO}" >> $GITHUB_OUTPUT
+
+      - name: Verify VSIX file exists
+        run: |
+          if [ ! -f "${{ steps.package_info.outputs.vsix_path }}" ]; then
+            echo "VSIX file not found: ${{ steps.package_info.outputs.vsix_path }}"
+            ls -la ./dist/
+            exit 1
+          fi
+          echo "VSIX file found: ${{ steps.package_info.outputs.vsix_path }}"
+
+      - name: Upload VSIX as workflow artifact
+        if: ${{ inputs.upload_artifacts != false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package_info.outputs.vsix_file }}
+          path: ${{ steps.package_info.outputs.vsix_path }}
+          retention-days: 30
+          compression-level: 0 # No compression since VSIX is already compressed
+
+      - name: Create GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package_info.outputs.vsix_path }}
+          name: MTA Extension ${{ steps.package_info.outputs.package_version }}
+          body: |
+            ## MTA Extension Release ${{ steps.package_info.outputs.package_version }}
+
+            Migration Toolkit for Applications VS Code Extension
+
+            ### Build Information
+            - **Based on**: [konveyor/editor-extensions@${{ steps.upstream_sha.outputs.upstream_sha_short }}](https://github.com/konveyor/editor-extensions/commit/${{ steps.upstream_sha.outputs.upstream_sha }})
+            - **Built**: ${{ github.run_id }} on ${{ github.ref_name }}
+
+            ### Installation
+            Download the `.vsix` file and install it in VS Code:
+            ```
+            code --install-extension ${{ steps.package_info.outputs.vsix_file }}
+            ```
+
+            Or use the VS Code Extensions view: Extensions → Views and More Actions → Install from VSIX
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package**: ${{ steps.package_info.outputs.package_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.package_info.outputs.package_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **VSIX File**: ${{ steps.package_info.outputs.vsix_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "- **Tag**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          fi
