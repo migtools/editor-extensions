@@ -1,0 +1,51 @@
+name: Sync with konveyor
+
+on:
+  workflow_dispatch:
+    # Manual triggering only
+
+jobs:
+  sync:
+    name: Rebase onto migtools
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.MIGTOOLS_BOT_ID }}
+          private-key: ${{ secrets.MIGTOOLS_BOT_KEY }}
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for rebase
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add konveyor remote
+        run: |
+          git remote add konveyor https://github.com/konveyor/editor-extensions.git
+          git fetch konveyor ${{ github.ref_name }}
+
+      - name: Attempt rebase onto konveyor
+        run: |
+          echo "Current branch: $(git branch --show-current)"
+          echo "Attempting to rebase onto konveyor/${{ github.ref_name }}..."
+
+          # This will fail hard if there are conflicts
+          git rebase konveyor/${{ github.ref_name }}
+
+          echo "Rebase successful!"
+
+      - name: Push rebased changes
+        run: |
+          git push --force-with-lease origin $(git branch --show-current)
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
