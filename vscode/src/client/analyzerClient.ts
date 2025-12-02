@@ -112,12 +112,22 @@ export class AnalyzerClient {
     const pipeName = rpc.generateRandomPipeName();
     const [analyzerRpcServer, analyzerPid] = this.startAnalysisServer(pipeName);
     analyzerRpcServer.on("exit", (code, signal) => {
-      this.logger.info(`Analyzer RPC server terminated [signal: ${signal}, code: ${code}]`);
-      if (code) {
-        vscode.window.showErrorMessage(
-          `Analyzer RPC server failed. Status code: ${code}. Please see the output channel for details.`,
-        );
+      const exitReason = signal ? `signal: ${signal}` : `exit code: ${code}`;
+      this.logger.info(`Analyzer RPC server terminated [${exitReason}]`, {
+        code,
+        signal,
+        currentState: this.getExtStateData().serverState,
+        wasExpected: this.getExtStateData().serverState === "stopping",
+      });
+
+      if (code && code !== 0) {
+        const message = `Analyzer RPC server failed with exit code ${code}. Check the analyzer.log for details.`;
+        this.logger.error(message);
+        vscode.window.showErrorMessage(message);
+      } else if (signal && this.getExtStateData().serverState !== "stopping") {
+        this.logger.warn(`Analyzer was terminated unexpectedly by signal: ${signal}`);
       }
+
       this.fireServerStateChange("stopped");
       this.analyzerRpcServer = null;
     });
@@ -141,11 +151,37 @@ export class AnalyzerClient {
     try {
       socket = await this.getSocket(pipeName);
     } catch (err) {
+      const processStillRunning =
+        this.analyzerRpcServer &&
+        !this.analyzerRpcServer.killed &&
+        this.analyzerRpcServer.exitCode === null;
+
       this.logger.error(`Failed to establish socket connection to pipe '${pipeName}'`, {
         error: err instanceof Error ? err.message : String(err),
         serverPid: analyzerPid,
         serverRunning: this.analyzerRpcServer !== null,
+        serverKilled: this.analyzerRpcServer?.killed,
+        serverExitCode: this.analyzerRpcServer?.exitCode,
+        processStillAlive: processStillRunning,
+        suggestion: processStillRunning
+          ? "Process is running but not responding on the named pipe. Check analyzer.log for errors."
+          : "Process has exited. Check if it crashed during startup.",
       });
+
+      // Try to read the analyzer log file for more context
+      const logs = path.join(paths().serverLogs.fsPath, "analyzer.log");
+      try {
+        if (await fs.pathExists(logs)) {
+          const logContent = await fs.readFile(logs, "utf-8");
+          const lines = logContent.split("\n").filter((l) => l.trim());
+          this.logger.error("Analyzer log content (last 20 lines):", {
+            lines: lines.slice(-20),
+          });
+        }
+      } catch (logError) {
+        this.logger.warn("Could not read analyzer log file");
+      }
+
       throw err;
     }
 
@@ -156,10 +192,15 @@ export class AnalyzerClient {
       this.logger.warn("Connection attempt failed");
     });
     socket.on("data", (data) => {
-      this.logger.debug(`Received data: ${data.toString()}`);
+      this.logger.debug(
+        `Received socket data (${data.length} bytes): ${data.toString().substring(0, 200)}`,
+      );
     });
+
+    this.logger.info("Creating RPC message reader and writer");
     const reader = new rpc.SocketMessageReader(socket, "utf-8");
     const writer = new rpc.SocketMessageWriter(socket, "utf-8");
+    this.logger.info("RPC message reader and writer created");
 
     reader.onClose(() => {
       this.logger.info("Message reader closed");
@@ -173,12 +214,16 @@ export class AnalyzerClient {
     writer.onError((e) => {
       this.logger.error("Error in message writer", e);
     });
+
+    this.logger.info("Creating RPC message connection");
     this.analyzerRpcConnection = rpc.createMessageConnection(reader, writer);
+    this.logger.info("RPC message connection created");
+
     this.analyzerRpcConnection.trace(
       rpc.Trace.Messages,
       {
         log: (message) => {
-          this.logger.silly("RPC Trace", { message: JSON.stringify(message) });
+          this.logger.debug("RPC Trace", { message: JSON.stringify(message).substring(0, 500) });
         },
       },
       false,
@@ -187,13 +232,21 @@ export class AnalyzerClient {
       this.logger.warn(`Unhandled notification: ${e.method}`);
     });
 
-    this.analyzerRpcConnection.onClose(() => this.logger.info("RPC connection closed"));
+    this.analyzerRpcConnection.onClose(() => {
+      this.logger.info("RPC connection closed");
+      this.logger.debug("RPC connection closed, current server state:", {
+        state: this.getExtStateData().serverState,
+      });
+    });
+
     this.analyzerRpcConnection.onRequest((method, params) => {
-      this.logger.debug(`Received request: ${method} + ${JSON.stringify(params)}`);
+      this.logger.debug(`Received request: ${method}`, {
+        params: JSON.stringify(params).substring(0, 200),
+      });
     });
 
     this.analyzerRpcConnection.onNotification("started", (_: []) => {
-      this.logger.info("Server initialization complete");
+      this.logger.info("✓ Server 'started' notification received");
       this.fireServerStateChange("running");
     });
     this.analyzerRpcConnection.onNotification((method: string, params: any) => {
@@ -225,14 +278,22 @@ export class AnalyzerClient {
       },
     );
     this.analyzerRpcConnection.onError((e) => {
-      this.logger.error("RPC connection error", e);
-      // If we're still in starting/initializing state, this means connection failed
       const currentState = this.getExtStateData().serverState;
+      this.logger.error("RPC connection error", {
+        error: e,
+        errorType: e.constructor.name,
+        currentState,
+        serverPid: this.analyzerRpcServer?.pid,
+        serverKilled: this.analyzerRpcServer?.killed,
+      });
+
+      // If we're still in starting/initializing state, this means connection failed
       if (currentState === "starting" || currentState === "initializing") {
         this.logger.error("RPC connection failed during startup, cleaning up...");
         this.fireServerStateChange("startFailed");
         // Kill the analyzer process since we can't communicate with it
         if (this.analyzerRpcServer && !this.analyzerRpcServer.killed) {
+          this.logger.info(`Killing analyzer process ${this.analyzerRpcServer.pid}`);
           this.analyzerRpcServer.kill();
         }
         vscode.window.showErrorMessage(
@@ -240,8 +301,40 @@ export class AnalyzerClient {
         );
       }
     });
+
+    this.logger.info("Starting RPC connection listener");
     this.analyzerRpcConnection.listen();
+    this.logger.info("RPC connection listener started");
+
+    this.logger.info("Sending 'start' notification to analyzer server");
     this.analyzerRpcConnection.sendNotification("start", { type: "start" });
+    this.logger.info("'start' notification sent, waiting for server response");
+
+    // Give the server a moment to respond and write to its log
+    await setTimeout(1000);
+
+    // Check analyzer log file for additional info
+    const logs = path.join(paths().serverLogs.fsPath, "analyzer.log");
+    try {
+      if (await fs.pathExists(logs)) {
+        const logContent = await fs.readFile(logs, "utf-8");
+        const lastLines = logContent.split("\n").slice(-10).join("\n");
+        if (lastLines.trim()) {
+          this.logger.debug("Recent analyzer.log content:", {
+            lines: lastLines.trim(),
+          });
+        } else {
+          this.logger.warn("analyzer.log exists but is empty");
+        }
+      } else {
+        this.logger.warn(`analyzer.log not found at: ${logs}`);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not read analyzer.log: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
     await this.runHealthCheck();
     this.logger.info(`startAnalyzer took ${performance.now() - startTime}ms`);
   }
@@ -289,11 +382,20 @@ export class AnalyzerClient {
 
     s.on("error", (err) => {
       lastError = err;
+      const errorCode = (err as any).code;
+      const isTimeout = errorCode === "ETIMEDOUT";
+      const isNoEnt = errorCode === "ENOENT";
+
       this.logger.error(`Socket connection error: ${err.message}`, {
-        code: (err as any).code,
+        code: errorCode,
         errno: (err as any).errno,
         syscall: (err as any).syscall,
         address: (err as any).address,
+        interpretation: isTimeout
+          ? "Server stopped responding after initial connection"
+          : isNoEnt
+            ? "Named pipe does not exist yet (server not ready)"
+            : "Unknown error type",
       });
     });
 
@@ -306,9 +408,16 @@ export class AnalyzerClient {
     });
 
     while ((s.connecting || !s.readable) && !ready && retryCount < MAX_RETRIES) {
-      this.logger.info(
-        `Connection attempt ${retryCount + 1}/${MAX_RETRIES} - connecting: ${s.connecting}, readable: ${s.readable}, ready: ${ready}`,
-      );
+      this.logger.info(`Connection attempt ${retryCount + 1}/${MAX_RETRIES}`, {
+        socketState: {
+          connecting: s.connecting,
+          readable: s.readable,
+          writable: s.writable,
+          ready,
+          destroyed: s.destroyed,
+          pending: s.pending,
+        },
+      });
       await setTimeout(RETRY_DELAY);
       retryCount++;
 
@@ -323,7 +432,15 @@ export class AnalyzerClient {
     }
 
     if (s.readable) {
-      this.logger.info(`Successfully connected to pipe after ${retryCount} attempt(s)`);
+      this.logger.info(`Successfully connected to pipe after ${retryCount} attempt(s)`, {
+        socketState: {
+          connecting: s.connecting,
+          readable: s.readable,
+          writable: s.writable,
+          destroyed: s.destroyed,
+          pending: s.pending,
+        },
+      });
       return s;
     } else {
       const errorDetails = lastError
@@ -373,16 +490,55 @@ export class AnalyzerClient {
     const analyzerRpcServer = spawn(analyzerPath, args, {
       cwd: paths().serverCwd.fsPath,
       env: serverEnv,
+      windowsHide: true, // Hide console window on Windows
     });
 
+    let stdoutBuffer = "";
+    let stderrBuffer = "";
+
     analyzerRpcServer.stdout.on("data", (data) => {
-      const asString: string = data.toString().trimEnd();
-      this.logger.info(`[analyzer stdout] ${asString}`);
+      const asString: string = data.toString();
+      stdoutBuffer += asString;
+
+      // Log line by line for better readability
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+      lines.forEach((line) => {
+        if (line.trim()) {
+          this.logger.info(`[analyzer stdout] ${line}`);
+        }
+      });
     });
 
     analyzerRpcServer.stderr.on("data", (data) => {
-      const asString: string = data.toString().trimEnd();
-      this.logger.error(`[analyzer stderr] ${asString}`);
+      const asString: string = data.toString();
+      stderrBuffer += asString;
+
+      // Log line by line for better readability
+      const lines = stderrBuffer.split(/\r?\n/);
+      stderrBuffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+      lines.forEach((line) => {
+        if (line.trim()) {
+          this.logger.error(`[analyzer stderr] ${line}`);
+        }
+      });
+    });
+
+    // Log any remaining buffered output when streams close
+    analyzerRpcServer.stdout.on("end", () => {
+      if (stdoutBuffer.trim()) {
+        this.logger.info(`[analyzer stdout] ${stdoutBuffer.trim()}`);
+      }
+      this.logger.debug("Analyzer stdout stream ended");
+    });
+
+    analyzerRpcServer.stderr.on("end", () => {
+      if (stderrBuffer.trim()) {
+        this.logger.error(`[analyzer stderr] ${stderrBuffer.trim()}`);
+      }
+      this.logger.debug("Analyzer stderr stream ended");
     });
 
     if (!analyzerRpcServer.pid) {
