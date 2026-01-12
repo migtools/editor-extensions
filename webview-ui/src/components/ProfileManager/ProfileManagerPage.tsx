@@ -10,14 +10,17 @@ import {
   PageSidebar,
   PageSidebarBody,
 } from "@patternfly/react-core";
-import { useExtensionStateContext } from "../../context/ExtensionStateContext";
+import { useExtensionStore } from "../../store/store";
+import { sendVscodeMessage as dispatch } from "../../utils/vscodeMessaging";
 import { ProfileList } from "./ProfileList";
 import { ProfileEditorForm } from "./ProfileEditorForm";
 import { AnalysisProfile } from "../../../../shared/dist/types";
 
 export const ProfileManagerPage: React.FC = () => {
-  const { state, dispatch } = useExtensionStateContext();
-  const { profiles, activeProfileId } = state;
+  // ✅ Selective subscriptions
+  const profiles = useExtensionStore((state) => state.profiles);
+  const activeProfileId = useExtensionStore((state) => state.activeProfileId);
+  const isAnalyzing = useExtensionStore((state) => state.isAnalyzing);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
     activeProfileId ?? profiles[0]?.id ?? null,
   );
@@ -39,7 +42,7 @@ export const ProfileManagerPage: React.FC = () => {
     }
   };
 
-  const handleDupelicateProfile = (profile: AnalysisProfile) => {
+  const handleDuplicateProfile = (profile: AnalysisProfile) => {
     const baseName = profile.name;
     let index = 1;
     let newName = baseName;
@@ -52,8 +55,7 @@ export const ProfileManagerPage: React.FC = () => {
       name: newName,
     };
     dispatch({ type: "ADD_PROFILE", payload: newProfile });
-    setSelectedProfileId(newProfile.id); // <- Keep this
-    window.vscode.postMessage({ type: "ADD_PROFILE", payload: newProfile });
+    setSelectedProfileId(newProfile.id);
   };
 
   const handleCreateProfile = () => {
@@ -106,7 +108,8 @@ export const ProfileManagerPage: React.FC = () => {
               onCreate={handleCreateProfile}
               onDelete={handleDeleteProfile}
               onMakeActive={handleMakeActive}
-              onDuplicate={handleDupelicateProfile}
+              onDuplicate={handleDuplicateProfile}
+              isDisabled={isAnalyzing}
             />
           </SplitItem>
           <SplitItem isFilled style={{ flex: "1 1 auto" }}>
@@ -118,6 +121,7 @@ export const ProfileManagerPage: React.FC = () => {
                 onChange={handleProfileChange}
                 onDelete={handleDeleteProfile}
                 onMakeActive={handleMakeActive}
+                isDisabled={isAnalyzing}
               />
             ) : (
               <Bullseye>

@@ -23,7 +23,7 @@ import { type InMemoryCacheWithRevisions } from "../cache";
 import { type KaiModelProvider, KaiWorkflowMessageType } from "../types";
 import { type GetBestHintResult, SolutionServerClient } from "../clients/solutionServerClient";
 
-type IssueFixResponseParserState = "reasoning" | "updatedFile" | "additionalInfo";
+export type IssueFixResponseParserState = "reasoning" | "updatedFile" | "additionalInfo";
 
 export class AnalysisIssueFix extends BaseNode {
   constructor(
@@ -31,16 +31,49 @@ export class AnalysisIssueFix extends BaseNode {
     tools: DynamicStructuredTool[],
     private readonly fsCache: InMemoryCacheWithRevisions<string, string>,
     private readonly workspaceDir: string,
-    private readonly solutionServerClient: SolutionServerClient,
-    private readonly logger: Logger,
+    private readonly solutionServerClient: SolutionServerClient | undefined,
+    logger: Logger,
   ) {
-    super("AnalysisIssueFix", modelProvider, tools);
+    super("AnalysisIssueFix", modelProvider, tools, logger);
 
     this.fixAnalysisIssue = this.fixAnalysisIssue.bind(this);
     this.summarizeHistory = this.summarizeHistory.bind(this);
     this.fixAnalysisIssueRouter = this.fixAnalysisIssueRouter.bind(this);
-    this.parseAnalysisFixResponse = this.parseAnalysisFixResponse.bind(this);
     this.summarizeAdditionalInformation = this.summarizeAdditionalInformation.bind(this);
+  }
+
+  // Generate language-specific guidance for dependency and import management
+  private getDependencyGuidance(programmingLanguage: string): string {
+    const language = programmingLanguage.toLowerCase();
+
+    if (
+      language === "java" ||
+      language === "kotlin" ||
+      language === "scala" ||
+      language === "groovy"
+    ) {
+      return `Pay attention to changes you make and impacts to external dependencies in the pom.xml as well as changes to imports we need to consider.
+Remember when updating or adding annotations that the class must be imported.
+As you make changes that impact the pom.xml or imports, be sure you explain what needs to be updated.`;
+    }
+
+    if (language === "javascript" || language === "typescript") {
+      return `Pay attention to changes you make and impacts to external dependencies in package.json as well as changes to imports we need to consider.
+As you make changes that impact package.json or imports, be sure you explain what needs to be updated.`;
+    }
+
+    if (language === "python") {
+      return `Pay attention to changes you make and impacts to external dependencies in requirements.txt or pyproject.toml as well as changes to imports we need to consider.
+As you make changes that impact dependencies or imports, be sure you explain what needs to be updated.`;
+    }
+
+    if (language === "go") {
+      return `Pay attention to changes you make and impacts to external dependencies in go.mod as well as changes to imports we need to consider.
+As you make changes that impact go.mod or imports, be sure you explain what needs to be updated.`;
+    }
+    // Generic fallback for other languages
+    return `Pay attention to changes you make and impacts to external dependencies as well as changes to imports we need to consider.
+As you make changes that impact dependencies or imports, be sure you explain what needs to be updated.`;
   }
 
   // node responsible for routing analysis issue fixes
@@ -58,7 +91,11 @@ export class AnalysisIssueFix extends BaseNode {
       inputFileContent: undefined,
       inputIncidents: [],
     };
-    this.logger.silly("AnalysisIssueFixRouter called with state", { state });
+    // Don't log full state - can cause "Invalid string length" error with large states
+    this.logger.silly("AnalysisIssueFixRouter called", {
+      currentIdx: state.currentIdx,
+      totalIncidents: state.inputIncidentsByUris.length,
+    });
     // we have to fix the incidents if there's at least one present in state
     if (state.currentIdx < state.inputIncidentsByUris.length) {
       const nextEntry = state.inputIncidentsByUris[state.currentIdx];
@@ -103,14 +140,14 @@ export class AnalysisIssueFix extends BaseNode {
         state.outputReasoning &&
         state.inputIncidents.length > 0
       ) {
+        const solutionServerClient = this.solutionServerClient;
+
         const incidentIds = await Promise.all(
-          state.inputIncidents.map((incident) =>
-            this.solutionServerClient.createIncident(incident),
-          ),
+          state.inputIncidents.map((incident) => solutionServerClient.createIncident(incident)),
         );
 
         try {
-          await this.solutionServerClient.createSolution(
+          await solutionServerClient.createSolution(
             incidentIds,
             [
               {
@@ -165,7 +202,11 @@ export class AnalysisIssueFix extends BaseNode {
       nextState.inputAllReasoning = accumulated.reasoning;
       nextState.inputAllModifiedFiles = accumulated.uris;
     }
-    this.logger.silly("AnalysisIssueFixRouter returning nextState", { nextState });
+    // Don't log full state - can cause "Invalid string length" error
+    this.logger.silly("AnalysisIssueFixRouter returning", {
+      hasOutputAllResponses: !!nextState.outputAllResponses,
+      responseCount: nextState.outputAllResponses?.length || 0,
+    });
     return nextState;
   }
 
@@ -173,7 +214,12 @@ export class AnalysisIssueFix extends BaseNode {
   async fixAnalysisIssue(
     state: typeof AnalysisIssueFixInputState.State,
   ): Promise<typeof AnalysisIssueFixOutputState.State> {
-    this.logger.silly("AnalysisIssueFix called with state", { state });
+    // Don't log full state - can cause "Invalid string length" error
+    this.logger.silly("AnalysisIssueFix called", {
+      hasInputFileUri: !!state.inputFileUri,
+      hasInputFileContent: !!state.inputFileContent,
+      incidentCount: state.inputIncidents?.length || 0,
+    });
     if (!state.inputFileUri || !state.inputFileContent || state.inputIncidents.length === 0) {
       return {
         outputUpdatedFile: undefined,
@@ -197,6 +243,10 @@ export class AnalysisIssueFix extends BaseNode {
         if (!seenViolationTypes.has(violationKey)) {
           seenViolationTypes.add(violationKey);
           try {
+            if (!this.solutionServerClient) {
+              this.logger.info("Solution server client not available, skipping hint retrieval");
+              continue;
+            }
             const hint = await this.solutionServerClient.getBestHint(
               incident.ruleset_name,
               incident.violation_name,
@@ -214,8 +264,11 @@ export class AnalysisIssueFix extends BaseNode {
     const fileName = basename(state.inputFileUri);
 
     const sysMessage = new SystemMessage(
-      `You are an experienced java developer, who specializes in migrating code from ${state.migrationHint}`,
+      `You are an experienced ${state.programmingLanguage.toLowerCase()} developer, who specializes in migrating code from ${state.migrationHint}`,
     );
+
+    // Generate language-specific dependency guidance
+    const dependencyGuidance = this.getDependencyGuidance(state.programmingLanguage);
 
     const humanMessage =
       new HumanMessage(`I will give you a file for which I want to take one step towards migrating ${state.migrationHint}.
@@ -223,10 +276,10 @@ I will provide you with static source code analysis information highlighting an 
 Fix all the issues described. Other problems will be solved in subsequent steps so it is unnecessary to handle them now.
 Before attempting to migrate the code from ${state.migrationHint}, reason through what changes are required and why.
 
-Pay attention to changes you make and impacts to external dependencies in the pom.xml as well as changes to imports we need to consider.
-Remember when updating or adding annotations that the class must be imported.
-As you make changes that impact the pom.xml or imports, be sure you explain what needs to be updated.
+${dependencyGuidance}
 After you have shared your step by step thinking, provide a full output of the updated file.
+
+**It is essential that you always output the entire updated file without omitting any unchanged code.**
 
 # Input information
 
@@ -283,7 +336,7 @@ If you have any additional details or steps that need to be performed, put it he
       };
     }
 
-    const { additionalInfo, reasoning, updatedFile } = this.parseAnalysisFixResponse(response);
+    const { additionalInfo, reasoning, updatedFile } = parseAnalysisFixResponse(response);
 
     return {
       outputReasoning: reasoning,
@@ -418,44 +471,61 @@ ${state.inputAllReasoning}`,
       iterationCount: state.iterationCount + 2, // since these steps happen in parallel, we increment by 2
     };
   }
+}
 
-  private parseAnalysisFixResponse(response: AIMessage | AIMessageChunk): {
+export function parseAnalysisFixResponse(response: AIMessage | AIMessageChunk): {
+  [key in IssueFixResponseParserState]: string;
+} {
+  const parsed: {
     [key in IssueFixResponseParserState]: string;
-  } {
-    const parsed: {
-      [key in IssueFixResponseParserState]: string;
-    } = { updatedFile: "", additionalInfo: "", reasoning: "" };
-    const content = typeof response.content === "string" ? response.content : "";
+  } = { updatedFile: "", additionalInfo: "", reasoning: "" };
+  const content = typeof response.content === "string" ? response.content : "";
 
-    const matcherFunc = (line: string): IssueFixResponseParserState | undefined =>
-      line.match(/(#|\*)* *[R|r]easoning/)
-        ? "reasoning"
-        : line.match(/(#|\*)* *[U|u]pdated *[F|f]ile/)
-          ? "updatedFile"
-          : line.match(/(#|\*)* *[A|a]dditional *[I|i]nformation/)
-            ? "additionalInfo"
-            : undefined;
+  const matcherFunc = (line: string): IssueFixResponseParserState | undefined =>
+    line.match(/(#|\*)* *[R|r]easoning/)
+      ? "reasoning"
+      : line.match(/(#|\*)* *[U|u]pdated *[F|f]ile/)
+        ? "updatedFile"
+        : line.match(/(#|\*)* *[A|a]dditional *[I|i]nformation/)
+          ? "additionalInfo"
+          : undefined;
 
-    let parserState: IssueFixResponseParserState | undefined = undefined;
-    let buffer: string[] = [];
+  const processBuffer = (buffer: string[], parserState: IssueFixResponseParserState): string => {
+    if (parserState === "updatedFile") {
+      // ISSUE-848: anything before and after the first and last code block separator should be omitted
+      const firstCodeBlockSeparatorIndex = buffer.findIndex((line) => line.match(/^\s*```\w*/));
+      const lastCodeBlockSeparatorIndex = buffer.findLastIndex((line) => line.match(/^\s*```\w*/));
+      return buffer
+        .slice(
+          firstCodeBlockSeparatorIndex !== -1 ? firstCodeBlockSeparatorIndex + 1 : 0,
+          lastCodeBlockSeparatorIndex !== -1 ? lastCodeBlockSeparatorIndex : buffer.length,
+        )
+        .join("\n")
+        .trim();
+    } else {
+      return buffer.join("\n").trim();
+    }
+  };
 
-    for (const line of content.split("\n")) {
-      const nextState = matcherFunc(line);
-      if (nextState) {
-        if (parserState && buffer.length) {
-          parsed[parserState] = buffer.join("\n").trim();
-        }
-        buffer = [];
-        parserState = nextState;
-      } else if (parserState !== "updatedFile" || !line.match(/```\w*/)) {
-        buffer.push(line);
+  let parserState: IssueFixResponseParserState | undefined = undefined;
+  let buffer: string[] = [];
+
+  for (const line of content.split("\n")) {
+    const nextState = matcherFunc(line);
+    if (nextState) {
+      if (parserState && buffer.length) {
+        parsed[parserState] = processBuffer(buffer, parserState);
       }
+      buffer = [];
+      parserState = nextState;
+    } else {
+      buffer.push(line);
     }
-
-    if (parserState && buffer.length) {
-      parsed[parserState] = buffer.join("\n").trim();
-    }
-
-    return parsed;
   }
+
+  if (parserState && buffer.length) {
+    parsed[parserState] = processBuffer(buffer, parserState);
+  }
+
+  return parsed;
 }

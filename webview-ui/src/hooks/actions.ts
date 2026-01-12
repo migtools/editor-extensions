@@ -1,19 +1,10 @@
 import {
   EnhancedIncident,
-  ExtensionData,
-  LocalChange,
   Scope,
   ScopeWithKonveyorContext,
   WebviewAction,
   WebviewActionType,
 } from "@editor-extensions/shared";
-
-export const setExtensionData = (
-  data: ExtensionData,
-): WebviewAction<WebviewActionType, ExtensionData> => ({
-  type: "SET_STATE",
-  payload: data,
-});
 
 export const runAnalysis = (): WebviewAction<WebviewActionType, unknown> => ({
   type: "RUN_ANALYSIS",
@@ -40,11 +31,6 @@ export const enableGenAI = (): WebviewAction<WebviewActionType, unknown> => ({
   payload: {},
 });
 
-export const cancelSolution = (): WebviewAction<WebviewActionType, unknown> => ({
-  type: "CANCEL_SOLUTION",
-  payload: {},
-});
-
 export const getSolution = (
   incidents: EnhancedIncident[],
 ): WebviewAction<WebviewActionType, Scope> => ({
@@ -67,31 +53,6 @@ export const openFile = (
   payload: { file, line },
 });
 
-export const viewFix = (change: LocalChange): WebviewAction<WebviewActionType, LocalChange> => ({
-  type: "VIEW_FIX",
-  payload: change,
-});
-
-export const configureLabelSelector = (): WebviewAction<WebviewActionType, unknown> => ({
-  type: "CONFIGURE_LABEL_SELECTOR",
-  payload: {}, // no payload needed here, but could pass data if needed
-});
-
-export const configureSourcesTargets = (): WebviewAction<WebviewActionType, unknown> => ({
-  type: "CONFIGURE_SOURCES_TARGETS",
-  payload: {},
-});
-
-export const overrideAnalyzerBinaries = (): WebviewAction<WebviewActionType, unknown> => ({
-  type: "OVERRIDE_ANALYZER_BINARIES",
-  payload: {},
-});
-
-export const configureModelProviderSettings = (): WebviewAction<WebviewActionType, unknown> => ({
-  type: "OPEN_GENAI_SETTINGS",
-  payload: {},
-});
-
 export const getSuccessRate = (): WebviewAction<WebviewActionType, unknown> => ({
   type: "GET_SUCCESS_RATE",
   payload: {},
@@ -104,5 +65,15 @@ export const toggleAgentMode = (): WebviewAction<WebviewActionType, unknown> => 
 
 export const openResolutionPanel = (): WebviewAction<WebviewActionType, unknown> => ({
   type: "OPEN_RESOLUTION_PANEL",
+  payload: {},
+});
+
+export const syncHubProfiles = (): WebviewAction<WebviewActionType, unknown> => ({
+  type: "SYNC_HUB_PROFILES",
+  payload: {},
+});
+
+export const retryProfileSync = (): WebviewAction<WebviewActionType, unknown> => ({
+  type: "RETRY_PROFILE_SYNC",
   payload: {},
 });

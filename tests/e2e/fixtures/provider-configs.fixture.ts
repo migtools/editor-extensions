@@ -11,6 +11,7 @@ export const AWS_PROVIDER: ProviderConfig = {
   provider: LLMProviders.awsBedrock,
   model: 'meta.llama3-70b-instruct-v1:0',
   config: [
+    '---',
     'models:',
     '  AmazonBedrock: &active',
     '    provider: "ChatBedrock"',
@@ -24,6 +25,7 @@ export const OPENAI_GPT4O_PROVIDER: ProviderConfig = {
   provider: LLMProviders.openAI,
   model: 'gpt-4o',
   config: [
+    '---',
     'models:',
     '  OpenAI: &active',
     '    provider: "ChatOpenAI"',
@@ -37,6 +39,7 @@ export const OPENAI_GPT4OMINI_PROVIDER: ProviderConfig = {
   provider: LLMProviders.openAI,
   model: 'gpt-4o-mini',
   config: [
+    '---',
     'models:',
     '  OpenAI: &active',
     '    provider: "ChatOpenAI"',
@@ -46,10 +49,25 @@ export const OPENAI_GPT4OMINI_PROVIDER: ProviderConfig = {
   ].join('\n'),
 };
 
+export const GOOGLE_GEMINI_PROVIDER: ProviderConfig = {
+  provider: LLMProviders.google,
+  model: 'gemini-2.5-pro',
+  config: [
+    '---',
+    'models:',
+    '  GoogleGenAI: &active',
+    '    provider: "ChatGoogleGenerativeAI"',
+    '    args:',
+    '      model: "gemini-2.5-pro"',
+    'active: *active',
+  ].join('\n'),
+};
+
 export const PARASOL_PROVIDER: ProviderConfig = {
   provider: LLMProviders.openAI,
   model: 'granite-3-3-8b-instruct',
   config: [
+    '---',
     'models:',
     '  parasols-maas-granite: &active',
     '    provider: "ChatOpenAI"',
@@ -79,5 +97,5 @@ export function getAvailableProviders(): ProviderConfig[] {
     providers.push(AWS_PROVIDER);
   }
 
-  return providers;
+  return [AWS_PROVIDER];
 }

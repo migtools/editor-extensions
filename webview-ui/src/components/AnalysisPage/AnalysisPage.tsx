@@ -3,6 +3,7 @@ import "./styles.css";
 import React, { useState, useEffect } from "react";
 import {
   Alert,
+  AlertActionCloseButton,
   AlertGroup,
   Backdrop,
   Button,
@@ -38,7 +39,10 @@ import {
   ToolbarContent,
   ToolbarGroup,
   ToolbarItem,
+  Tooltip,
+  Icon,
 } from "@patternfly/react-core";
+import ClockIcon from "@patternfly/react-icons/dist/esm/icons/clock-icon";
 
 import {
   openFile,
@@ -50,7 +54,8 @@ import {
   openResolutionPanel,
 } from "../../hooks/actions";
 import { useViolations } from "../../hooks/useViolations";
-import { useExtensionStateContext } from "../../context/ExtensionStateContext";
+import { useExtensionStore } from "../../store/store";
+import { sendVscodeMessage as dispatch } from "../../utils/vscodeMessaging";
 import { WalkthroughDrawer } from "./WalkthroughDrawer/WalkthroughDrawer";
 import { ConfigButton } from "./ConfigButton/ConfigButton";
 import { ServerStatusToggle } from "../ServerStatusToggle/ServerStatusToggle";
@@ -59,33 +64,40 @@ import ViolationIncidentsList from "../ViolationIncidentsList";
 import { ProfileSelector } from "../ProfileSelector/ProfileSelector";
 import ProgressIndicator from "../ProgressIndicator";
 import ConfigAlerts from "./ConfigAlerts";
+import GetSolutionDropdown from "../GetSolutionDropdown";
 import { Incident } from "@editor-extensions/shared";
 
 const AnalysisPage: React.FC = () => {
-  const { state, dispatch } = useExtensionStateContext();
-
-  const {
-    isAnalyzing,
-    isStartingServer,
-    isInitializingServer,
-    isFetchingSolution: isWaitingForSolution,
-    ruleSets: analysisResults,
-    enhancedIncidents,
-    configErrors: rawConfigErrors,
-    profiles,
-    activeProfileId,
-    serverState,
-    solutionServerEnabled,
-    localChanges,
-    isAgentMode,
-    solutionServerConnected,
-    isWaitingForUserInteraction,
-  } = state;
+  const isAnalyzing = useExtensionStore((state) => state.isAnalyzing);
+  const analysisProgress = useExtensionStore((state) => state.analysisProgress ?? 0);
+  const analysisProgressMessage = useExtensionStore((state) => state.analysisProgressMessage ?? "");
+  const isAnalysisScheduled = useExtensionStore((state) => state.isAnalysisScheduled);
+  const isStartingServer = useExtensionStore((state) => state.isStartingServer);
+  const isInitializingServer = useExtensionStore((state) => state.isInitializingServer);
+  const isWaitingForSolution = useExtensionStore((state) => state.isFetchingSolution);
+  const analysisResults = useExtensionStore((state) => state.ruleSets);
+  const enhancedIncidents = useExtensionStore((state) => state.enhancedIncidents);
+  const rawConfigErrors = useExtensionStore((state) => state.configErrors);
+  const profiles = useExtensionStore((state) => state.profiles);
+  const activeProfileId = useExtensionStore((state) => state.activeProfileId);
+  const isInTreeMode = useExtensionStore((state) => state.isInTreeMode);
+  const serverState = useExtensionStore((state) => state.serverState);
+  const solutionServerEnabled = useExtensionStore((state) => state.solutionServerEnabled);
+  const isAgentMode = useExtensionStore((state) => state.isAgentMode);
+  const solutionServerConnected = useExtensionStore((state) => state.solutionServerConnected);
+  const isWaitingForUserInteraction = useExtensionStore(
+    (state) => state.isWaitingForUserInteraction,
+  );
+  const isProcessingQueuedMessages = useExtensionStore((state) => state.isProcessingQueuedMessages);
+  const profileSyncEnabled = useExtensionStore((state) => state.profileSyncEnabled);
+  const profileSyncConnected = useExtensionStore((state) => state.profileSyncConnected);
+  const isSyncingProfiles = useExtensionStore((state) => state.isSyncingProfiles);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [focusedIncident, setFocusedIncident] = useState<Incident | null>(null);
   const [expandedViolations, setExpandedViolations] = useState<Set<string>>(new Set());
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isGenAIAlertDismissed, setIsGenAIAlertDismissed] = useState(false);
 
   const violations = useViolations(analysisResults);
   const hasViolations = violations.length > 0;
@@ -99,13 +111,7 @@ const AnalysisPage: React.FC = () => {
     if (enhancedIncidents.length > 0 && solutionServerEnabled && solutionServerConnected) {
       dispatch(getSuccessRate());
     }
-  }, [
-    enhancedIncidents.length,
-    localChanges.length,
-    solutionServerEnabled,
-    solutionServerConnected,
-    dispatch,
-  ]);
+  }, [enhancedIncidents.length, solutionServerEnabled, solutionServerConnected, dispatch]);
 
   const handleIncidentSelect = (incident: Incident) => {
     setFocusedIncident(incident);
@@ -220,9 +226,27 @@ const AnalysisPage: React.FC = () => {
               configErrors={rawConfigErrors}
               solutionServerEnabled={solutionServerEnabled}
               solutionServerConnected={solutionServerConnected}
+              profileSyncEnabled={profileSyncEnabled}
+              profileSyncConnected={profileSyncConnected}
               onOpenProfileManager={() => dispatch({ type: "OPEN_PROFILE_MANAGER", payload: {} })}
               dispatch={dispatch}
             />
+            {!isGenAIDisabled && !isGenAIAlertDismissed && (
+              <PageSection padding={{ default: "noPadding" }}>
+                <Card isCompact style={{ maxWidth: "600px", margin: "0 auto" }}>
+                  <Alert
+                    variant="info"
+                    title="Generative AI is enabled"
+                    actionClose={
+                      <AlertActionCloseButton onClose={() => setIsGenAIAlertDismissed(true)} />
+                    }
+                  >
+                    This feature uses AI technology. Do not include any personal information or
+                    other sensitive information in your input.
+                  </Alert>
+                </Card>
+              </PageSection>
+            )}
             {selectedProfile && (
               <PageSection padding={{ default: "padding" }}>
                 <Card isCompact>
@@ -249,18 +273,35 @@ const AnalysisPage: React.FC = () => {
                             dispatch({ type: "OPEN_PROFILE_MANAGER", payload: {} })
                           }
                           isDisabled={isStartingServer || isAnalyzing}
+                          isInTreeMode={isInTreeMode}
                         />
                       </Flex>
-                      <Button
-                        variant="primary"
-                        onClick={handleRunAnalysis}
-                        isLoading={isAnalyzing}
-                        isDisabled={
-                          isAnalyzing || isStartingServer || !serverRunning || isWaitingForSolution
-                        }
-                      >
-                        {isAnalyzing ? "Analyzing..." : "Run Analysis"}
-                      </Button>
+                      <div className="analysis-button-wrapper">
+                        <Button
+                          variant="primary"
+                          onClick={handleRunAnalysis}
+                          isLoading={isAnalyzing}
+                          isDisabled={
+                            isAnalyzing ||
+                            isStartingServer ||
+                            !serverRunning ||
+                            isWaitingForSolution ||
+                            isSyncingProfiles
+                          }
+                        >
+                          {isAnalyzing ? "Analyzing..." : "Run Analysis"}
+                        </Button>
+                        {isAnalysisScheduled && !isAnalyzing && (
+                          <Tooltip
+                            content="Analysis is scheduled for changed files. Click to run full analysis now."
+                            position="bottom"
+                          >
+                            <Icon className="analysis-scheduled-icon">
+                              <ClockIcon />
+                            </Icon>
+                          </Tooltip>
+                        )}
+                      </div>
                     </Flex>
                   </CardHeader>
 
@@ -297,10 +338,25 @@ const AnalysisPage: React.FC = () => {
               <Stack hasGutter>
                 <StackItem>
                   <Card>
-                    <CardHeader>
+                    <CardHeader
+                      actions={
+                        hasViolations && !isAnalyzing
+                          ? {
+                              actions: [
+                                <GetSolutionDropdown
+                                  key="get-solution-workspace"
+                                  incidents={enhancedIncidents}
+                                  scope="workspace"
+                                />,
+                              ],
+                              hasNoOffset: true,
+                            }
+                          : undefined
+                      }
+                    >
                       <Flex className="header-layout">
                         <FlexItem>
-                          <CardTitle>Analysis Results</CardTitle>
+                          <CardTitle style={{ overflow: "visible" }}>Analysis Results</CardTitle>
                           {!isAnalyzing && (
                             <ViolationsCount
                               violationsCount={violations.length}
@@ -314,7 +370,12 @@ const AnalysisPage: React.FC = () => {
                       </Flex>
                     </CardHeader>
                     <CardBody>
-                      {isAnalyzing && <ProgressIndicator progress={50} />}
+                      {isAnalyzing && (
+                        <ProgressIndicator
+                          progress={analysisProgress}
+                          message={analysisProgressMessage}
+                        />
+                      )}
                       {!isAnalyzing && !hasViolations && (
                         <EmptyState variant="sm">
                           <Title
@@ -346,14 +407,18 @@ const AnalysisPage: React.FC = () => {
                 </StackItem>
               </Stack>
             </PageSection>
-            {(isWaitingForSolution || isWaitingForUserInteraction) && (
+            {(isWaitingForSolution ||
+              isWaitingForUserInteraction ||
+              isProcessingQueuedMessages) && (
               <Backdrop>
                 <div style={{ textAlign: "center", paddingTop: "15rem" }}>
                   <Spinner size="lg" />
                   <Title headingLevel="h2" size="lg">
                     {isWaitingForUserInteraction
                       ? "Waiting for user action..."
-                      : "Waiting for solution confirmation..."}
+                      : isProcessingQueuedMessages
+                        ? "Processing solution..."
+                        : "Waiting for solution confirmation..."}
                   </Title>
                   <Button
                     variant="primary"

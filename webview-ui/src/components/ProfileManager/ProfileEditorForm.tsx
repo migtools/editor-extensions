@@ -27,7 +27,7 @@ import {
   StarIcon,
   InfoCircleIcon,
 } from "@patternfly/react-icons";
-import { useExtensionStateContext } from "../../context/ExtensionStateContext";
+import { sendVscodeMessage as dispatch } from "../../utils/vscodeMessaging";
 import { AnalysisProfile, CONFIGURE_CUSTOM_RULES } from "@editor-extensions/shared";
 import { ConfirmDialog } from "../ConfirmDialog/ConfirmDialog";
 import { CreatableMultiSelectField } from "./CreatableMultiSelectField";
@@ -60,7 +60,8 @@ export const ProfileEditorForm: React.FC<{
   onDelete: (id: string) => void;
   onMakeActive: (id: string) => void;
   allProfiles: AnalysisProfile[];
-}> = ({ profile, isActive, onChange, onDelete, onMakeActive, allProfiles }) => {
+  isDisabled?: boolean;
+}> = ({ profile, isActive, onChange, onDelete, onMakeActive, allProfiles, isDisabled = false }) => {
   const [localProfile, setLocalProfile] = useState(profile);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
@@ -74,13 +75,11 @@ export const ProfileEditorForm: React.FC<{
   const [rulesValidation, setRulesValidation] = useState<"default" | "error">("default");
   const [rulesErrorMsg, setRulesErrorMsg] = useState<string | null>(null);
 
-  const { dispatch } = useExtensionStateContext();
-
   const { callback: debouncedChange, isPending: isSaving } = useDebouncedCallback(onChange, 300);
 
   useEffect(() => {
     // Only reset localProfile if it's a different profile to prevent overwriting pending changes
-    if (profile.id !== localProfile.id) {
+    if (profile.id !== localProfile.id || profile.customRules !== localProfile.customRules) {
       setLocalProfile(profile);
     }
     setNameValidation("default");
@@ -182,8 +181,21 @@ export const ProfileEditorForm: React.FC<{
 
   return (
     <Form isWidthLimited>
+      {/* Operation in Progress Warning */}
+      {isDisabled && (
+        <Alert
+          variant="warning"
+          title="Profile editing is temporarily disabled"
+          isInline
+          style={{ marginBottom: "1rem" }}
+        >
+          Profile modifications are blocked while analysis or solution generation is in progress.
+          Please wait for the current operation to complete.
+        </Alert>
+      )}
+
       {/* Active Profile Header */}
-      {isActive && (
+      {isActive && !isDisabled && (
         <Alert
           variant="info"
           title={
@@ -247,7 +259,7 @@ export const ProfileEditorForm: React.FC<{
       <FormGroup label="Profile Name" fieldId="profile-name" isRequired>
         <TextInput
           id="profile-name"
-          isDisabled={profile.readOnly}
+          isDisabled={profile.readOnly || isDisabled}
           value={localProfile.name}
           onChange={(_e, value) => handleInputChange(value, "name")}
           onBlur={handleBlur}
@@ -273,6 +285,7 @@ export const ProfileEditorForm: React.FC<{
             updateLabelSelector(selectedSources, updated);
           }}
           initialOptions={targetOptions}
+          isDisabled={isDisabled}
         />
         {targetsErrorMsg ? (
           <FormHelperText>
@@ -302,6 +315,7 @@ export const ProfileEditorForm: React.FC<{
             updateLabelSelector(updated, selectedTargets);
           }}
           initialOptions={sourceOptions}
+          isDisabled={isDisabled}
         />
         <FormHelperText>
           <HelperText>
@@ -316,7 +330,7 @@ export const ProfileEditorForm: React.FC<{
         <Switch
           id="use-default-rules"
           isChecked={localProfile.useDefaultRules}
-          isDisabled={profile.readOnly}
+          isDisabled={profile.readOnly || isDisabled}
           onChange={(_e, checked) => {
             const updated = { ...localProfile, useDefaultRules: checked };
             setLocalProfile(updated);
@@ -348,7 +362,7 @@ export const ProfileEditorForm: React.FC<{
           <StackItem isFilled>
             <Button
               variant="secondary"
-              isDisabled={profile.readOnly}
+              isDisabled={profile.readOnly || isDisabled}
               onClick={() =>
                 dispatch({
                   type: CONFIGURE_CUSTOM_RULES,
@@ -378,13 +392,17 @@ export const ProfileEditorForm: React.FC<{
                     </Tooltip>
                   }
                   closeBtnAriaLabel="Remove rule"
-                  onClose={() => {
-                    const updated = localProfile.customRules.filter((_, i) => i !== index);
-                    const newProfile = { ...localProfile, customRules: updated };
-                    setLocalProfile(newProfile);
-                    validateRules(newProfile);
-                    debouncedChange(newProfile);
-                  }}
+                  onClose={
+                    isDisabled
+                      ? undefined
+                      : () => {
+                          const updated = localProfile.customRules.filter((_, i) => i !== index);
+                          const newProfile = { ...localProfile, customRules: updated };
+                          setLocalProfile(newProfile);
+                          validateRules(newProfile);
+                          debouncedChange(newProfile);
+                        }
+                  }
                 >
                   {truncateMiddle(path.split("/").pop() || path, 30)}
                 </Label>
@@ -404,7 +422,11 @@ export const ProfileEditorForm: React.FC<{
             </Tooltip>
           ) : (
             <Tooltip content="Set this profile as active to use it for new analyses">
-              <Button variant="secondary" onClick={() => onMakeActive(profile.id)}>
+              <Button
+                variant="secondary"
+                onClick={() => onMakeActive(profile.id)}
+                isDisabled={isDisabled}
+              >
                 Make Active
               </Button>
             </Tooltip>
@@ -414,7 +436,7 @@ export const ProfileEditorForm: React.FC<{
           <Button
             variant="danger"
             onClick={() => setIsDeleteDialogOpen(true)}
-            isDisabled={profile.readOnly}
+            isDisabled={profile.readOnly || isDisabled}
           >
             Delete Profile
           </Button>

@@ -1,11 +1,20 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import {
-  EnhancedIncident,
-  SuccessRateMetric,
-  SolutionServerConfig,
-} from "@editor-extensions/shared";
+import { EnhancedIncident, SuccessRateMetric } from "@editor-extensions/shared";
 import { Logger } from "winston";
+import { Resource, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { AIMessageChunk } from "@langchain/core/messages";
+
+import { KaiWorkflowEventEmitter } from "../eventEmitter";
+import { KaiWorkflowMessageType } from "../types";
+
+// MCP endpoint path for Konveyor Hub solution server
+const SOLUTION_SERVER_MCP_PATH = "/hub/services/kai/api";
+
+export interface SolutionServerCapabilities {
+  tools: Tool[];
+  resources: Resource[];
+}
 
 export interface SolutionFile {
   uri: string;
@@ -36,127 +45,39 @@ export class SolutionServerClientError extends Error {
   }
 }
 
-export interface TokenResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-  refresh_token?: string;
-}
-
-export class SolutionServerClient {
+/**
+ * Client for interacting with the MCP solution server.
+ *
+ * Note: Authentication is now handled by HubConnectionManager.
+ * This class focuses solely on MCP client operations.
+ */
+export class SolutionServerClient extends KaiWorkflowEventEmitter {
   private mcpClient: Client | null = null;
-  private enabled: boolean;
   private serverUrl: string;
-  private isConnected: boolean = false;
-  private authEnabled: boolean;
-  private insecure: boolean;
-  private realm: string;
-  private clientId: string;
-  private username: string;
-  private password: string;
-  private bearerToken: string | null = null;
-  private refreshToken: string | null = null;
-  private tokenExpiresAt: number | null = null;
-  private refreshTimer: NodeJS.Timeout | null = null;
+  private bearerToken: string | null;
   private currentClientId: string = "";
   private logger: Logger;
-  private sslBypassCleanup: (() => void) | null = null;
+  private cachedCapabilities: SolutionServerCapabilities | null = null;
+  public isConnected: boolean = false;
 
-  constructor(config: SolutionServerConfig, logger: Logger) {
-    this.enabled = config.enabled;
-    this.serverUrl = config.url;
-    this.authEnabled = config.auth.enabled;
-    this.insecure = config.auth.insecure;
-    this.realm = config.auth.realm;
-    this.clientId = `${this.realm}-ui`;
-    this.username = "";
-    this.password = "";
+  /**
+   * Create a new SolutionServerClient.
+   * @param hubUrl The base Hub URL (e.g., https://hub.example.com)
+   * @param bearerToken Optional bearer token for authentication
+   * @param logger Logger instance
+   */
+  constructor(hubUrl: string, bearerToken: string | null, logger: Logger) {
+    super();
+    // Build full MCP endpoint URL from base Hub URL
+    const baseUrl = hubUrl.endsWith("/") ? hubUrl.slice(0, -1) : hubUrl;
+    this.serverUrl = `${baseUrl}${SOLUTION_SERVER_MCP_PATH}`;
+    this.bearerToken = bearerToken;
     this.logger = logger.child({
       component: "SolutionServerClient",
     });
-    // Clear auth-related properties if auth is disabled
-    if (!this.authEnabled) {
-      this.realm = "";
-      this.clientId = "";
-      this.insecure = false;
-      this.bearerToken = null;
-      this.refreshToken = null;
-      this.tokenExpiresAt = null;
-      this.clearTokenRefreshTimer();
-    }
-  }
-
-  public updateConfig(config: SolutionServerConfig): void {
-    this.enabled = config.enabled;
-    this.serverUrl = config.url;
-    this.authEnabled = config.auth.enabled;
-    this.insecure = config.auth.insecure;
-    this.realm = config.auth.realm;
-    this.clientId = `${this.realm}-ui`;
-    // Clear auth-related properties if auth is disabled
-    if (!this.authEnabled) {
-      this.realm = "";
-      this.clientId = "";
-      this.insecure = false;
-      this.bearerToken = null;
-      this.refreshToken = null;
-      this.tokenExpiresAt = null;
-      this.clearTokenRefreshTimer();
-    }
-    this.logger.info("Solution server configuration updated");
-  }
-
-  public async authenticate(username: string, password: string): Promise<void> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, skipping authentication");
-      return;
-    }
-
-    if (!this.authEnabled) {
-      this.logger.info("Authentication is disabled");
-      return;
-    }
-
-    if (!username || !password) {
-      throw new SolutionServerClientError("No username or password provided");
-    }
-
-    this.username = username;
-    this.password = password;
-    this.logger.info("Credentials stored for authentication");
   }
 
   public async connect(): Promise<void> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, skipping connection");
-      return;
-    }
-
-    // Apply SSL bypass for development/testing if insecure flag is enabled
-    if (this.insecure) {
-      this.sslBypassCleanup = this.applySSLBypass();
-    }
-
-    // Handle authentication if required
-    if (this.authEnabled) {
-      // Only require credentials if we don't yet have a token
-      if (!this.bearerToken && (!this.username || !this.password)) {
-        throw new SolutionServerClientError("No credentials available. Call authenticate() first.");
-      }
-      // Exchange for tokens if we don't have one
-      if (!this.bearerToken) {
-        try {
-          await this.exchangeForTokens();
-        } catch (error) {
-          this.logger.error("Failed to exchange for tokens", error);
-          throw error;
-        }
-      }
-
-      // Ensure refresh timer is running (also after manual restarts)
-      this.startTokenRefreshTimer();
-    }
-
     this.mcpClient = new Client(
       {
         name: "konveyor-vscode-extension",
@@ -182,9 +103,13 @@ export class SolutionServerClient {
     }
 
     try {
-      const { tools, resources } = await this.getServerCapabilities();
-      this.logger.info(`Available tools: ${tools.map((t: any) => t.name).join(", ")}`);
-      this.logger.info(`Available resources: ${resources.map((r: any) => r.name).join(", ")}`);
+      const { tools } = await this.mcpClient.listTools();
+      const { resources } = await this.mcpClient.listResources();
+
+      this.cachedCapabilities = { tools, resources };
+
+      this.logger.info(`Available tools: ${tools.map((t: Tool) => t.name).join(", ")}`);
+      this.logger.info(`Available resources: ${resources.map((r: Resource) => r.name).join(", ")}`);
 
       this.logger.info("MCP solution server initialized successfully");
     } catch (error) {
@@ -196,7 +121,7 @@ export class SolutionServerClient {
   private async attemptConnectionWithSlashRetry(): Promise<boolean> {
     const transportOptions: any = {};
 
-    if (this.authEnabled && this.bearerToken) {
+    if (this.bearerToken) {
       transportOptions.requestInit = {
         headers: {
           Authorization: `Bearer ${this.bearerToken}`,
@@ -249,21 +174,9 @@ export class SolutionServerClient {
   }
 
   public async disconnect(): Promise<void> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, skipping disconnect");
-      return;
-    }
-
     this.logger.info("Disconnecting from MCP solution server...");
 
-    // Clear refresh timer
-    this.clearTokenRefreshTimer();
-
-    // Restore SSL settings
-    if (this.sslBypassCleanup) {
-      this.sslBypassCleanup();
-      this.sslBypassCleanup = null;
-    }
+    this.cachedCapabilities = null;
 
     try {
       if (this.mcpClient) {
@@ -278,6 +191,44 @@ export class SolutionServerClient {
     }
   }
 
+  /**
+   * Update the bearer token and reconnect if currently connected.
+   * This is called after token refresh to ensure the MCP connection uses the new token.
+   */
+  public async updateBearerToken(newToken: string): Promise<void> {
+    const wasConnected = this.isConnected;
+    this.logger.info("Updating bearer token", { wasConnected });
+
+    this.bearerToken = newToken;
+
+    if (wasConnected) {
+      // Reconnect with new token - MCP SDK uses token during connection setup
+      this.logger.info("Reconnecting MCP client with new token");
+      await this.disconnect();
+      await this.connect();
+    }
+  }
+
+  /**
+   * Closes and cleans up a stale MCP client after connection failure.
+   * This is called when we detect the server is unreachable to prevent resource leaks.
+   */
+  private async closeStaleClient(): Promise<void> {
+    if (this.mcpClient) {
+      try {
+        await this.mcpClient.close();
+        this.logger.debug("Closed stale MCP client after connection failure");
+      } catch (closeError) {
+        this.logger.warn("Error closing stale MCP client:", closeError);
+      } finally {
+        this.mcpClient = null;
+      }
+    }
+
+    // Clear cached capabilities since we're disconnected
+    this.cachedCapabilities = null;
+  }
+
   public setClientId(clientId: string): void {
     this.currentClientId = clientId;
   }
@@ -286,35 +237,78 @@ export class SolutionServerClient {
     return this.currentClientId;
   }
 
-  public async getServerCapabilities(): Promise<any> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, returning empty capabilities");
-      return;
-    }
+  public async getServerCapabilities(
+    skipCache: boolean = false,
+  ): Promise<SolutionServerCapabilities> {
     if (!this.mcpClient || !this.isConnected) {
       throw new SolutionServerClientError("Solution server is not connected");
+    }
+
+    // Return cached capabilities if available to avoid redundant calls (unless skipCache is true)
+    if (!skipCache && this.cachedCapabilities) {
+      this.logger.debug("Returning cached server capabilities");
+      return this.cachedCapabilities;
     }
 
     try {
       const { tools } = await this.mcpClient.listTools();
       const { resources } = await this.mcpClient.listResources();
 
+      // Cache for future calls
+      this.cachedCapabilities = { tools, resources };
+
       return {
         tools,
         resources,
       };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error && typeof error === "object" && "cause" in error && error.cause
+          ? (error.cause as any)?.code
+          : undefined;
+
+      // Check if this is a connection error
+      const isConnectionError =
+        errorMessage.toLowerCase().includes("fetch failed") ||
+        errorMessage.toLowerCase().includes("econnreset") ||
+        errorMessage.toLowerCase().includes("econnrefused") ||
+        errorMessage.toLowerCase().includes("etimedout") ||
+        errorCode === "ECONNRESET" ||
+        errorCode === "ECONNREFUSED" ||
+        errorCode === "ETIMEDOUT";
+
+      if (isConnectionError) {
+        // Connection error - log detailed diagnostic information
+        this.logger.error(`Solution server connection failure while getting capabilities`, {
+          errorMessage,
+          errorCode,
+          serverUrl: this.serverUrl,
+          isConnected: this.isConnected,
+          hasToken: !!this.bearerToken,
+          mcpClientExists: !!this.mcpClient,
+          fullError: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+        });
+
+        // Mark as disconnected
+        this.isConnected = false;
+
+        // Close the stale MCP client to prevent resource leaks
+        await this.closeStaleClient();
+
+        // Return empty capabilities instead of throwing
+        return {
+          tools: [],
+          resources: [],
+        };
+      }
+
       this.logger.error("Failed to get server capabilities", error);
       throw error;
     }
   }
 
   public async getSuccessRate(incidents: EnhancedIncident[]): Promise<EnhancedIncident[]> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, returning incidents without success rate");
-      return incidents;
-    }
-
     if (!this.mcpClient || !this.isConnected) {
       this.logger.error(
         "Get success rate called but solution server is not connected. Maybe the server is not running?",
@@ -405,11 +399,6 @@ export class SolutionServerClient {
   }
 
   public async createIncident(enhancedIncident: EnhancedIncident): Promise<number> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, returning dummy incident ID");
-      return -1; // Return a dummy ID when disabled
-    }
-
     if (!this.mcpClient || !this.isConnected) {
       this.logger.error(
         "Create incident called but solution server is not connected. Maybe the server is not running?",
@@ -468,15 +457,6 @@ export class SolutionServerClient {
   public async createMultipleIncidents(
     enhancedIncidents: EnhancedIncident[],
   ): Promise<CreateMultipleIncidentsResult> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, returning dummy incident IDs");
-      return {
-        incident_ids: enhancedIncidents.map(() => -1),
-        created_count: enhancedIncidents.length,
-        failed_count: 0,
-      };
-    }
-
     if (!this.mcpClient || !this.isConnected) {
       this.logger.error(
         "Create multiple incidents called but solution server is not connected. Maybe the server is not running?",
@@ -560,11 +540,6 @@ export class SolutionServerClient {
     reasoning: string,
     usedHintIds: number[],
   ): Promise<number> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, returning dummy solution ID");
-      return -1; // Return a dummy ID when disabled
-    }
-
     if (!this.mcpClient || !this.isConnected) {
       this.logger.error(
         "Create solution called but solution server is not connected. Maybe the server is not running?",
@@ -631,11 +606,6 @@ export class SolutionServerClient {
     rulesetName: string,
     violationName: string,
   ): Promise<GetBestHintResult | undefined> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, no hint available");
-      return undefined;
-    }
-
     if (!this.mcpClient || !this.isConnected) {
       this.logger.error(
         "Get best hint called but solution server is not connected. Maybe the server is not running?",
@@ -645,6 +615,15 @@ export class SolutionServerClient {
 
     try {
       this.logger.info(`Getting best hint for violation: ${rulesetName} - ${violationName}`);
+
+      // Emit message that we're querying the solution server for a hint
+      this.emitWorkflowMessage({
+        id: `solution-server-hint-query-${Date.now()}-${rulesetName}-${violationName}`,
+        type: KaiWorkflowMessageType.LLMResponseChunk,
+        data: new AIMessageChunk(
+          `🔍 Querying solution server for hints about: **${violationName}**`,
+        ),
+      });
 
       const result = await this.mcpClient!.callTool({
         name: "get_best_hint",
@@ -672,6 +651,16 @@ export class SolutionServerClient {
                   this.logger.info(
                     `Found best hint for violation ${rulesetName} - ${violationName}`,
                   );
+
+                  // Emit message showing the hint that was found
+                  this.emitWorkflowMessage({
+                    id: `solution-server-hint-found-${Date.now()}-${rulesetName}-${violationName}`,
+                    type: KaiWorkflowMessageType.LLMResponseChunk,
+                    data: new AIMessageChunk(
+                      `✅ Found solution server hint (ID: ${parsed.hint_id}):\n\n${parsed.hint}`,
+                    ),
+                  });
+
                   return {
                     hint: parsed.hint,
                     hint_id: parsed.hint_id,
@@ -688,21 +677,106 @@ export class SolutionServerClient {
       }
 
       this.logger.info(`No hint found for violation ${rulesetName} - ${violationName}`);
+
+      // Emit message that no hint was found
+      this.emitWorkflowMessage({
+        id: `solution-server-hint-not-found-${Date.now()}-${rulesetName}-${violationName}`,
+        type: KaiWorkflowMessageType.LLMResponseChunk,
+        data: new AIMessageChunk(`ℹ️ No hint found in solution server for: **${violationName}**`),
+      });
+
       return undefined;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error && typeof error === "object" && "cause" in error && error.cause
+          ? (error.cause as any)?.code
+          : undefined;
+
+      // Check if this is a "not found" error rather than a connection/server error
+      const isNotFoundError =
+        errorMessage.toLowerCase().includes("not found") ||
+        errorMessage.toLowerCase().includes("does not exist") ||
+        errorMessage.toLowerCase().includes("not in the database");
+
+      // Check if this is a connection error
+      const isConnectionError =
+        errorMessage.toLowerCase().includes("fetch failed") ||
+        errorMessage.toLowerCase().includes("econnreset") ||
+        errorMessage.toLowerCase().includes("econnrefused") ||
+        errorMessage.toLowerCase().includes("etimedout") ||
+        errorMessage.toLowerCase().includes("network") ||
+        errorCode === "ECONNRESET" ||
+        errorCode === "ECONNREFUSED" ||
+        errorCode === "ETIMEDOUT";
+
+      if (isNotFoundError) {
+        // Treat "not found" as a normal case - the violation simply has no hint in the database
+        this.logger.info(
+          `No hint available in solution server for violation ${rulesetName} - ${violationName} (not in database)`,
+        );
+
+        // Emit message that no hint was found (same as successful query with no results)
+        this.emitWorkflowMessage({
+          id: `solution-server-hint-not-found-${Date.now()}-${rulesetName}-${violationName}`,
+          type: KaiWorkflowMessageType.LLMResponseChunk,
+          data: new AIMessageChunk(`ℹ️ No hint found in solution server for: **${violationName}**`),
+        });
+
+        return undefined;
+      }
+
+      if (isConnectionError) {
+        // Connection errors should not stop the workflow - log detailed info for debugging
+        this.logger.error(
+          `Solution server connection failure while getting hint for ${rulesetName} - ${violationName}`,
+          {
+            errorMessage,
+            errorCode,
+            serverUrl: this.serverUrl,
+            isConnected: this.isConnected,
+            hasToken: !!this.bearerToken,
+            mcpClientExists: !!this.mcpClient,
+            fullError: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+          },
+        );
+
+        // Mark as disconnected so future calls will know
+        this.isConnected = false;
+
+        // Close the stale MCP client to prevent resource leaks
+        await this.closeStaleClient();
+
+        // Emit a warning message instead of an error to allow workflow to continue
+        this.emitWorkflowMessage({
+          id: `solution-server-hint-connection-issue-${Date.now()}-${rulesetName}-${violationName}`,
+          type: KaiWorkflowMessageType.LLMResponseChunk,
+          data: new AIMessageChunk(
+            `⚠️ Solution server connection failed (${errorCode || "network error"}) - continuing without hint for: **${violationName}**`,
+          ),
+        });
+
+        // Return undefined to allow workflow to continue without the hint
+        return undefined;
+      }
+
+      // For other actual errors (auth, permissions, etc.), log and emit error
       this.logger.error(
-        `Error getting best hint for violation ${rulesetName} - ${violationName}: ${error}`,
+        `Error getting best hint for violation ${rulesetName} - ${violationName}: ${errorMessage}`,
       );
+
+      // Emit error message for actual errors
+      this.emitWorkflowMessage({
+        id: `solution-server-hint-error-${Date.now()}-${rulesetName}-${violationName}`,
+        type: KaiWorkflowMessageType.Error,
+        data: `Error querying solution server: ${errorMessage}`,
+      });
+
       throw error;
     }
   }
 
   public async acceptFile(uri: string, content: string): Promise<void> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, skipping accept_file");
-      return;
-    }
-
     if (!this.mcpClient || !this.isConnected) {
       this.logger.error(
         "Accept file called but solution server is not connected. Maybe the server is not running?",
@@ -732,11 +806,6 @@ export class SolutionServerClient {
   }
 
   public async rejectFile(uri: string): Promise<void> {
-    if (!this.enabled) {
-      this.logger.info("Solution server is disabled, skipping reject_file");
-      return;
-    }
-
     if (!this.mcpClient || !this.isConnected) {
       this.logger.error(
         "Reject file called but solution server is not connected. Maybe the server is not running?",
@@ -760,181 +829,5 @@ export class SolutionServerClient {
       this.logger.error(`Error rejecting file ${uri}: ${error}`);
       throw error;
     }
-  }
-
-  private async exchangeForTokens(): Promise<void> {
-    if (!this.username || !this.password) {
-      throw new SolutionServerClientError("No username or password available for token exchange");
-    }
-
-    const url = new URL(this.serverUrl);
-    const keycloakUrl = `${url.protocol}//${url.host}/auth`;
-    const tokenUrl = `${keycloakUrl}/realms/${this.realm}/protocol/openid-connect/token`;
-
-    const params = new URLSearchParams();
-    params.append("grant_type", "password");
-    params.append("client_id", this.clientId);
-    params.append("username", this.username);
-    params.append("password", this.password);
-
-    try {
-      this.logger.debug(`Attempting token exchange with ${tokenUrl}`);
-
-      const response = await fetch(tokenUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-        },
-        body: params,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        this.logger.error(
-          `Token exchange failed: ${response.status} ${response.statusText}`,
-          errorText,
-        );
-        throw new SolutionServerClientError(
-          `Authentication failed: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      const tokenResponse = (await response.json()) as TokenResponse;
-      this.logger.info("Token exchange successful");
-
-      this.bearerToken = tokenResponse.access_token;
-      this.refreshToken = tokenResponse.refresh_token || null;
-      this.tokenExpiresAt = Date.now() + tokenResponse.expires_in * 1000 - 30000; // 30 second buffer
-    } catch (error) {
-      this.logger.error("Token exchange failed", error);
-      if (error instanceof SolutionServerClientError) {
-        throw error;
-      }
-      throw new SolutionServerClientError(
-        `Token exchange failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  private async refreshTokens(): Promise<void> {
-    if (!this.refreshToken) {
-      this.logger.warn("No refresh token available, cannot refresh");
-      return;
-    }
-
-    const url = new URL(this.serverUrl);
-    const keycloakUrl = `${url.protocol}//${url.host}/auth`;
-    const tokenUrl = `${keycloakUrl}/realms/${this.realm}/protocol/openid-connect/token`;
-
-    const params = new URLSearchParams();
-    params.append("grant_type", "refresh_token");
-    params.append("client_id", this.clientId);
-    params.append("refresh_token", this.refreshToken);
-
-    try {
-      this.logger.debug(`Attempting token refresh with ${tokenUrl}`);
-
-      const response = await fetch(tokenUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-        },
-        body: params,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        this.logger.error(
-          `Token refresh failed: ${response.status} ${response.statusText}`,
-          errorText,
-        );
-        throw new SolutionServerClientError(
-          `Token refresh failed: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      const tokenResponse = (await response.json()) as TokenResponse;
-      this.logger.info("Token refresh successful");
-
-      this.bearerToken = tokenResponse.access_token;
-      this.refreshToken = tokenResponse.refresh_token || this.refreshToken;
-      this.tokenExpiresAt = Date.now() + tokenResponse.expires_in * 1000 - 30000; // 30 second buffer
-
-      if (this.isConnected) {
-        this.logger.info("Reconnecting to MCP solution server");
-        try {
-          await this.disconnect();
-          await this.connect();
-        } catch (error) {
-          this.logger.error("Error reconnecting to MCP solution server", error);
-        }
-      }
-      // Always restart the refresh timer
-      this.startTokenRefreshTimer();
-    } catch (error) {
-      this.logger.error("Token refresh failed", error);
-      // For now, just log the error as requested
-    }
-  }
-
-  private startTokenRefreshTimer(): void {
-    this.clearTokenRefreshTimer();
-
-    if (!this.tokenExpiresAt) {
-      this.logger.warn("No token expiration time available, cannot start refresh timer");
-      return;
-    }
-
-    const now = Date.now();
-    const timeUntilRefresh = this.tokenExpiresAt - now;
-
-    if (timeUntilRefresh <= 0) {
-      // Token already expired, refresh immediately
-      this.refreshTokens().catch((error) => {
-        this.logger.error("Immediate token refresh failed", error);
-      });
-      return;
-    }
-
-    this.logger.info(`Starting token refresh timer, will refresh in ${timeUntilRefresh}ms`);
-    this.refreshTimer = setTimeout(() => {
-      this.refreshTokens().catch((error) => {
-        this.logger.error("Token refresh timer failed", error);
-      });
-    }, timeUntilRefresh);
-  }
-
-  private clearTokenRefreshTimer(): void {
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
-    }
-  }
-
-  /**
-   * Apply SSL bypass for insecure connections (Node.js specific)
-   */
-  private applySSLBypass(): () => void {
-    this.logger.debug("Applying SSL bypass for insecure connections");
-
-    // Store original values
-    const originalRejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-
-    // Disable SSL verification through environment variable
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
-    this.logger.warn("SSL certificate verification is disabled");
-
-    // Return cleanup function
-    return () => {
-      this.logger.debug("Restoring SSL settings");
-      if (originalRejectUnauthorized !== undefined) {
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalRejectUnauthorized;
-      } else {
-        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-      }
-    };
   }
 }

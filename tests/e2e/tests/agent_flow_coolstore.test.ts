@@ -1,11 +1,13 @@
 import * as pathlib from 'path';
 import { expect, test } from '../fixtures/test-repo-fixture';
 import { VSCode } from '../pages/vscode.page';
+import { VSCodeDesktop } from '../pages/vscode-desktop.page';
 import { SCREENSHOTS_FOLDER } from '../utilities/consts';
 import { getRepoName } from '../utilities/utils';
 import { OPENAI_GPT4O_PROVIDER } from '../fixtures/provider-configs.fixture';
 import { KAIViews } from '../enums/views.enum';
-import { kaiCacheDir, kaiDemoMode } from '../enums/configuration-options.enum';
+import * as VSCodeFactory from '../utilities/vscode.factory';
+import { verifyAnalysisViewCleanState } from '../utilities/utils';
 
 // NOTE: This is the list of providers that have cached data for the coolstore app
 // Update this list when you create cache for a new provider, you probably don't need
@@ -22,16 +24,32 @@ providers.forEach((config) => {
       test.setTimeout(1600000);
       const repoName = getRepoName(testInfo);
       const repoInfo = testRepoData[repoName];
-      vscodeApp = await VSCode.open(repoInfo.repoUrl, repoInfo.repoName);
+
+      // prepareOffline=true extracts LLM cache and sets demoMode/cacheDir BEFORE VS Code launches
+      // This ensures the extension can use cached healthcheck data during initial activation
+      vscodeApp = await VSCodeFactory.init(
+        repoInfo.repoUrl,
+        repoInfo.repoName,
+        undefined,
+        true // prepareOffline
+      );
+
+      // Wait for extension initialization
+      // Both redhat.java and konveyor-java extensions will activate automatically
+      // via workspaceContains activation events (pom.xml, build.gradle, etc.)
+      if (vscodeApp instanceof VSCodeDesktop) {
+        await vscodeApp.waitForExtensionInitialization();
+      }
+
       try {
         await vscodeApp.deleteProfile(profileName);
       } catch {
         console.log(`An existing profile probably doesn't exist, creating a new one`);
       }
       await vscodeApp.createProfile(repoInfo.sources, repoInfo.targets, profileName);
+
       await vscodeApp.configureGenerativeAI(config.config);
       await vscodeApp.startServer();
-      await vscodeApp.ensureLLMCache();
     });
 
     test.beforeEach(async () => {
@@ -45,10 +63,8 @@ providers.forEach((config) => {
     // this test uses cached data, and only ensures that the agent mode flow works
     test('Fix JMS Topic issue with agent mode enabled (offline)', async () => {
       test.setTimeout(3600000);
-      // set demoMode and update java configuration to auto-reload
-      await vscodeApp.writeOrUpdateVSCodeSettings({
-        [kaiCacheDir]: pathlib.join('.vscode', 'cache'),
-        [kaiDemoMode]: true,
+      // update java configuration to auto-reload
+      await vscodeApp.openWorkspaceSettingsAndWrite({
         'java.configuration.updateBuildConfiguration': 'automatic',
       });
       // we need to run analysis before enabling agent mode
@@ -64,9 +80,12 @@ providers.forEach((config) => {
       console.log('Agent mode enabled');
       // find the JMS issue to fix
       await vscodeApp.searchViolation('References to JavaEE/JakartaEE JMS elements');
-      const fixButton = analysisView.locator('button#get-solution-button');
-      await expect(fixButton.first()).toBeVisible({ timeout: 6000 });
-      await fixButton.first().click();
+
+      // Click the Get Solution button for the specific JMS violation group (scope="issue")
+      // This targets just the JMS violations, not all workspace violations
+      const fixButton = analysisView.locator('button#get-solution-button[data-scope="issue"]');
+      await expect(fixButton).toBeVisible({ timeout: 30000 });
+      await fixButton.click();
       console.log('Fix button clicked');
       const resolutionView = await vscodeApp.getView(KAIViews.resolutionDetails);
       await vscodeApp.waitDefault();
@@ -94,9 +113,7 @@ providers.forEach((config) => {
         }
         // either a Yes/No button or 'Accept all changes' button will be visible throughout the flow
         const yesButton = resolutionView.locator('button').filter({ hasText: 'Yes' });
-        const acceptChangesLocator = resolutionView.locator(
-          'button[aria-label="Accept all changes"]'
-        );
+        const acceptChangesLocator = resolutionView.getByRole('button', { name: 'Accept' }).first();
         const yesButtonCount = await yesButton.count();
         if (yesButtonCount > lastYesButtonCount) {
           lastYesButtonCount = yesButtonCount;
@@ -137,6 +154,18 @@ providers.forEach((config) => {
           await vscodeApp.getWindow().waitForTimeout(3000);
         }
       }
+
+      // Verify the analysis view is in a clean, interactive state
+      await verifyAnalysisViewCleanState(
+        vscodeApp,
+        pathlib.join(
+          SCREENSHOTS_FOLDER,
+          'agentic_flow_coolstore',
+          `${config.model.replace(/[.:]/g, '-')}`,
+          `analysis-view-final-state.png`
+        ),
+        'Agent flow'
+      );
     });
 
     test.afterEach(async () => {

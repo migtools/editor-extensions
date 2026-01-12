@@ -2,24 +2,36 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension",
+      "name": "Run Core + Java Extensions",
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}/vscode",
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode/core",
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode/java",
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode/javascript",
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode/go",
         "--enable-proposed-api=konveyor.konveyor-ai",
         "--verbose"
-
       ],
-
-      "cwd": "${workspaceFolder}/vscode",
-      "outFiles": ["${workspaceFolder}/vscode/out/**/*.js"],
+      "cwd": "${workspaceFolder}/vscode/core",
+      "outFiles": [
+        "${workspaceFolder}/vscode/core/out/**/*.js",
+        "${workspaceFolder}/vscode/java/out/**/*.js",
+        "${workspaceFolder}/vscode/javascript/out/**/*.js",
+        "${workspaceFolder}/vscode/go/out/**/*.js",
+        "${workspaceFolder}/agentic/dist/**/*.js",
+        "${workspaceFolder}/shared/dist/**/*.js"
+      ],
       "sourceMaps": true,
       "resolveSourceMapLocations": [
-        "${workspaceFolder}/vscode/out/**",
+        "${workspaceFolder}/vscode/core/out/**",
+        "${workspaceFolder}/vscode/java/out/**",
+        "${workspaceFolder}/vscode/javascript/out/**",
+        "${workspaceFolder}/vscode/go/out/**",
+        "${workspaceFolder}/agentic/dist/**",
+        "${workspaceFolder}/shared/dist/**",
         "!**/node_modules/**"
       ],
-
       "preLaunchTask": "dev-without-shared"
     },
     {
@@ -27,10 +39,21 @@
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}/vscode",
-        "--extensionTestsPath=${workspaceFolder}/vscode/out/test/suite/index"
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode/core",
+        "--extensionTestsPath=${workspaceFolder}/vscode/core/out/test/suite/index"
       ],
-      "outFiles": ["${workspaceFolder}/vscode/out/test/**/*.js"],
+      "outFiles": [
+        "${workspaceFolder}/vscode/core/out/test/**/*.js",
+        "${workspaceFolder}/agentic/dist/**/*.js",
+        "${workspaceFolder}/shared/dist/**/*.js"
+      ],
+      "sourceMaps": true,
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/vscode/core/out/**",
+        "${workspaceFolder}/agentic/dist/**",
+        "${workspaceFolder}/shared/dist/**",
+        "!**/node_modules/**"
+      ],
       "preLaunchTask": "npm: test-watch - vscode"
     },
     {

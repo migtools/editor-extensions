@@ -42,9 +42,9 @@ export class DiagnosticsIssueFix extends BaseNode {
     fsTools: DynamicStructuredTool[],
     dependencyTools: DynamicStructuredTool[],
     private readonly workspaceDir: string,
-    private readonly logger: Logger,
+    logger: Logger,
   ) {
-    super("DiagnosticsIssueFix", modelProvider, [...fsTools, ...dependencyTools]);
+    super("DiagnosticsIssueFix", modelProvider, [...fsTools, ...dependencyTools], logger);
     this.diagnosticsPromises = new Map<string, PendingUserInteraction>();
 
     this.planFixes = this.planFixes.bind(this);
@@ -57,14 +57,31 @@ export class DiagnosticsIssueFix extends BaseNode {
 
   // resolves diagnostics promises with tasks or otherwise based on user response
   async resolveDiagnosticsPromise(response: KaiUserInteractionMessage): Promise<void> {
+    this.logger.debug("resolveDiagnosticsPromise called", {
+      responseId: response.id,
+      hasPromise: this.diagnosticsPromises.has(response.id),
+      yesNo: response.data.response?.yesNo,
+      hasTasks: !!response.data.response?.tasks,
+    });
+
     const promise = this.diagnosticsPromises.get(response.id);
     if (!promise) {
+      this.logger.warn("No pending promise found for diagnostics response", {
+        responseId: response.id,
+      });
       return;
     }
     const { data } = response;
     if (!data.response || (!data.response.choice && data.response.yesNo === undefined)) {
+      this.logger.error("Invalid response from user - rejecting promise", {
+        responseId: response.id,
+      });
       promise.reject(Error(`Invalid response from user`));
     }
+    this.logger.info("Resolving diagnostics promise", {
+      responseId: response.id,
+      yesNo: data.response?.yesNo,
+    });
     promise.resolve(response);
   }
 
@@ -74,6 +91,15 @@ export class DiagnosticsIssueFix extends BaseNode {
   async orchestratePlanAndExecution(
     state: typeof DiagnosticsOrchestratorState.State,
   ): Promise<typeof DiagnosticsOrchestratorState.State> {
+    this.logger.debug("orchestratePlanAndExecution called", {
+      hasCurrentAgent: !!state.currentAgent,
+      currentAgent: state.currentAgent,
+      hasDiagnosticsTasks: !!state.inputDiagnosticsTasks?.length,
+      hasAdditionalInfo: !!state.inputSummarizedAdditionalInfo,
+      hasNominatedAgents: !!state.plannerOutputNominatedAgents?.length,
+      enableDiagnosticsFixes: state.enableDiagnosticsFixes,
+    });
+
     const nextState: typeof DiagnosticsOrchestratorState.State = { ...state, shouldEnd: false };
     // if there is already an agent we sent work to, process their outputs and reset state
     if (state.currentAgent) {
@@ -96,9 +122,12 @@ export class DiagnosticsIssueFix extends BaseNode {
       nextState.shouldEnd = true;
       // if diagnostic fixes is disabled, end here
       if (!state.enableDiagnosticsFixes) {
+        this.logger.info("Diagnostic fixes disabled - ending workflow", { shouldEnd: true });
         return nextState;
       }
       const id = `req-tasks-${Date.now()}`;
+      this.logger.info("Waiting for tasks from IDE", { requestId: id });
+
       // ide is expected to resolve this promise when new diagnostics info is available
       const ideDiagnosticsPromise = new Promise<KaiUserInteractionMessage>((resolve, reject) => {
         this.diagnosticsPromises.set(id, {
@@ -115,8 +144,18 @@ export class DiagnosticsIssueFix extends BaseNode {
           systemMessage: {},
         },
       });
+
+      this.logger.debug("UserInteraction message emitted, awaiting promise", { requestId: id });
+
       try {
         const response = await ideDiagnosticsPromise;
+        this.logger.info("Tasks promise resolved", {
+          requestId: id,
+          yesNo: response.data.response?.yesNo,
+          hasTasks: !!response.data.response?.tasks,
+          taskCount: response.data.response?.tasks?.length ?? 0,
+        });
+
         if (response.data.response?.tasks && response.data.response.yesNo) {
           nextState.shouldEnd = false;
           // group tasks by uris
@@ -139,14 +178,19 @@ export class DiagnosticsIssueFix extends BaseNode {
                 tasks: group.tasks.sort(),
               }))
               .sort((a, b) => a.uri.localeCompare(b.uri)) ?? [];
-          this.logger.debug("Received new tasks", { tasks: newTasks });
+          this.logger.info("Received new tasks", { taskCount: newTasks.length });
           if (!newTasks || newTasks.length < 1) {
             nextState.shouldEnd = true;
           }
           nextState.inputDiagnosticsTasks = newTasks;
+        } else {
+          this.logger.info("User declined tasks or no tasks provided - ending workflow", {
+            requestId: id,
+            shouldEnd: nextState.shouldEnd,
+          });
         }
       } catch (e) {
-        this.logger.error(`Failed to wait for user response - ${e}`);
+        this.logger.error(`Failed to wait for user response - ${e}`, { requestId: id });
       } finally {
         this.diagnosticsPromises.delete(id);
       }
@@ -174,6 +218,9 @@ export class DiagnosticsIssueFix extends BaseNode {
         }
       }
       nextState.plannerOutputNominatedAgents = state.plannerOutputNominatedAgents || undefined;
+      this.logger.debug("orchestratePlanAndExecution returning (planner has agents)", {
+        shouldEnd: nextState.shouldEnd,
+      });
       return nextState;
     }
     // if we are here, there are tasks that need to be planned
@@ -191,6 +238,11 @@ export class DiagnosticsIssueFix extends BaseNode {
       nextState.plannerInputTasks = nextState.currentTask;
       nextState.inputDiagnosticsTasks = state.inputDiagnosticsTasks;
     }
+    this.logger.debug("orchestratePlanAndExecution returning (final)", {
+      shouldEnd: nextState.shouldEnd,
+      hasCurrentTask: !!nextState.currentTask,
+      remainingDiagnosticsTasks: nextState.inputDiagnosticsTasks?.length ?? 0,
+    });
     return nextState;
   }
 
@@ -306,6 +358,7 @@ You have access to a set of tools to search for files, read a file and write to 
 Work on one file at a time. **Completely address changes in one file before moving onto to next file.**\
 Explain you rationale while you make changes to files.\
 When you're done addressing all the changes or there are no additional changes, briefly summarize changes you made.\
+**User may or may not accept the changes you make. If rejected, do not take any action.**\
 `,
     );
 
@@ -377,7 +430,8 @@ You will also be given detailed instructions on how to fix the issues.\
 - You have access to a set of tools to search for files, read a file and write to a file.\
 - You also have access to specific tools that will help you determine which dependency to add.\
 - If the given issue cannot be solved by adding, modifying, updating or deleting dependencies, do not take any action.\
-- Explain your rationale as you make changes.\
+- Explain your rationale as you make changes.
+- User may or may not accept the changes you make. If rejected, do not take any action.\
 
 ${
   state.inputUrisForGeneralFix && state.inputUrisForGeneralFix.length > 0

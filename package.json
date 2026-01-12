@@ -1,6 +1,6 @@
 {
   "name": "editor-extensions",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "private": true,
   "displayName": "Konveyor",
   "description": "VSCode Extension for Konveyor to assist in migrating and modernizing applications.",
@@ -17,7 +17,7 @@
   "engines": {
     "vscode": "^1.93.0",
     "node": ">=22.9.0",
-    "npm": "^9.5.0 || >=10.5.2"
+    "npm": ">=10.5.2"
   },
   "type": "module",
   "categories": [
@@ -38,7 +38,10 @@
     "shared",
     "webview-ui",
     "agentic",
-    "vscode"
+    "vscode/core",
+    "vscode/java",
+    "vscode/javascript",
+    "vscode/go"
   ],
   "scripts": {
     "prepare": "husky",
@@ -51,14 +54,18 @@
     "dev:shared": "npm run dev -w shared",
     "dev:agentic": "npm run dev -w agentic",
     "dev:webview-ui": "wait-on -d 500 shared/dist/index.mjs && npm run start -w webview-ui",
-    "dev:vscode": "wait-on -d 500 shared/dist/index.mjs && npm run dev -w vscode",
+    "dev:vscode": "wait-on -d 500 shared/dist/index.mjs && concurrently -c auto 'npm run dev -w vscode/core' 'npm run dev -w vscode/javascript' 'npm run dev -w vscode/java' 'npm run dev -w vscode/go'",
     "prebuild": "[ -f scripts/prebuild.js ] && node scripts/prebuild.js || echo 'No prebuild script found'",
     "build": "npm run build --workspaces --if-present",
     "postbuild": "[ -f scripts/postbuild.js ] && node scripts/postbuild.js || echo 'No postbuild script found'",
     "collect-assets": "rimraf ./downloaded_assets && node ./scripts/collect-assets.js",
     "collect-assets:dev": "GITHUB_TOKEN=$(gh auth token 2>/dev/null || echo '') node ./scripts/collect-assets.js --use-workflow-artifacts --branch=main",
     "dist": "rimraf ./dist && node ./scripts/copy-dist.js",
-    "package": "cd dist && vsce package",
+    "package": "node ./scripts/package-extensions.js",
+    "package-core": "node ./scripts/package-extensions.js core",
+    "package-java": "node ./scripts/package-extensions.js java",
+    "package-javascript": "node ./scripts/package-extensions.js javascript",
+    "package-go": "node ./scripts/package-extensions.js go",
     "test": "npm run build && npm run test --workspaces --if-present"
   },
   "lint-staged": {
@@ -78,7 +85,7 @@
     "@typescript-eslint/eslint-plugin": "^8.7.0",
     "@typescript-eslint/parser": "^8.7.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "@vscode/vsce": "^3.2.1",
+    "@vscode/vsce": "^3.7.1",
     "colorette": "^2.0.20",
     "concurrently": "^8.2.2",
     "eslint": "^9.32.0",
@@ -93,6 +100,7 @@
     "husky": "^9.1.6",
     "lint-staged": "^15.2.10",
     "mocha": "^10.8.2",
+    "ovsx": "^0.10.7",
     "prettier": "^3.3.3",
     "rimraf": "^6.0.1",
     "tar": "^7.4.3",
@@ -115,7 +123,7 @@
     "fast-deep-equal": "^3.1.3",
     "fs-extra": "^11.2.0",
     "globby": "^14.0.2",
-    "immer": "10.1.1",
+    "immer": "^10.2.0",
     "js-yaml": "^4.1.0",
     "micromatch": "^4.0.8",
     "react": "^18.3.1",
@@ -123,7 +131,8 @@
     "slash": "^5.1.0",
     "uuid": "^10.0.0",
     "vscode-jsonrpc": "^8.2.1",
-    "yaml": "^2.7.0"
+    "yaml": "^2.7.0",
+    "zustand": "^5.0.8"
   },
   "optionalDependencies": {
     "@rollup/rollup-darwin-arm64": "^4.34.8",

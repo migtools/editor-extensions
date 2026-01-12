@@ -5,6 +5,10 @@ import * as path from 'path';
 import type { TestInfo } from '@playwright/test';
 import { rm } from 'node:fs/promises';
 import process from 'process';
+import { expect } from '@playwright/test';
+import type { VSCode } from '../pages/vscode.page';
+import { LogEntry } from '../types/log-entry';
+import { HubConfiguration } from '../types/hub-configuration';
 
 export const extensionName = process.env.EXTENSION_NAME || 'konveyor';
 export const extensionPublisher = process.env.EXTENSION_PUBLISHER || 'konveyor';
@@ -113,4 +117,131 @@ export function writeOrUpdateSettingsJson(settingsPath: string, settings: Record
     console.error('Error writing VSCode settings:', error);
     throw error;
   }
+}
+
+/**
+ * Verifies that the analysis view is in a clean, interactive state after test completion.
+ * This includes navigating back to the analysis view, checking for no loading elements,
+ * verifying the analysis table is visible, and taking a final screenshot.
+ *
+ * @param vscodeApp - The VSCode instance
+ * @param screenshotPath - Path for the final screenshot
+ * @param logPrefix - Prefix for console log messages (e.g., "Agent flow" or "Non-agent flow")
+ */
+export async function verifyAnalysisViewCleanState(
+  vscodeApp: VSCode,
+  screenshotPath: string,
+  logPrefix: string = 'Test'
+): Promise<void> {
+  // Navigate back to the analysis view to verify the table is shown properly
+  await vscodeApp.openAnalysisView();
+  console.log(`${logPrefix}: Navigated back to analysis view`);
+
+  // Import KAIViews locally to avoid circular dependency
+  const { KAIViews } = await import('../enums/views.enum');
+
+  // Verify that the analysis table is visible and there are no loading elements
+  const returnedAnalysisView = await vscodeApp.getView(KAIViews.analysisView);
+
+  // Wait for any loading to complete - check for backdrop, spinners, and waiting messages
+  const backdrop = returnedAnalysisView.locator('.pf-v6-c-backdrop');
+  const spinner = returnedAnalysisView.locator('.pf-v6-c-spinner');
+  const waitingText = returnedAnalysisView.getByText('Waiting for user action...');
+
+  await expect(backdrop).not.toBeVisible({ timeout: 30000 });
+  await expect(spinner).not.toBeVisible({ timeout: 30000 });
+  await expect(waitingText).not.toBeVisible({ timeout: 30000 });
+  console.log(
+    `${logPrefix}: Verified no backdrop overlay, spinners, or waiting messages are present`
+  );
+
+  // Verify that the analysis table/results are visible
+  const analysisTable = returnedAnalysisView.locator('[data-ouia-component-type="PF6/Card"]');
+  await expect(analysisTable.first()).toBeVisible({ timeout: 30000 });
+  console.log(`${logPrefix}: Verified analysis table is visible`);
+
+  // Take final screenshot showing the analysis view with table displayed
+  await vscodeApp.getWindow().screenshot({ path: screenshotPath });
+  console.log(`${logPrefix}: Final screenshot saved to ${screenshotPath}`);
+}
+
+export function parseLogEntries(rawContent: string): LogEntry[] {
+  const entries: LogEntry[] = [];
+
+  const normalized = rawContent.replace(/\}\s*\{/g, '}\n{');
+
+  const lines = normalized.split('\n');
+  let buffer = '';
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!trimmed) continue;
+
+    buffer += trimmed;
+
+    try {
+      const parsed = JSON.parse(buffer);
+      entries.push(parsed);
+      buffer = '';
+    } catch (e) {
+      const openBraces = (buffer.match(/\{/g) || []).length;
+      const closeBraces = (buffer.match(/\}/g) || []).length;
+      if (closeBraces > openBraces) {
+        console.warn(`Discarding trailing fragment: ${buffer.substring(0, 50)}...`);
+        buffer = trimmed.startsWith('{') ? trimmed : '';
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    try {
+      const parsed = JSON.parse(buffer);
+      entries.push(parsed);
+    } catch (e) {
+      console.warn(`Failed to parse remaining buffer: ${buffer.substring(0, 100)}...`);
+    }
+  }
+
+  return entries;
+}
+
+export function getHubConfig(
+  toEnableSolutionServer: boolean,
+  toEnableAuth: boolean,
+  toSyncProfiles: boolean
+): HubConfiguration {
+  const url = process.env.SOLUTION_SERVER_URL;
+  if (!url) {
+    throw new Error('Missing required URL');
+  }
+
+  const baseConfig: HubConfiguration = {
+    enabled: true,
+    url,
+    skipSSL: true,
+    solutionServerEnabled: toEnableSolutionServer,
+    profileSyncEnabled: toSyncProfiles,
+  };
+
+
+  if (!toEnableAuth) {
+    return baseConfig;
+  }
+
+  const username = process.env.SOLUTION_SERVER_USERNAME;
+  const password = process.env.SOLUTION_SERVER_PASSWORD;
+
+  if (!username || !password) {
+    throw new Error('Missing solution server credentials');
+  }
+
+  return {
+    ...baseConfig,
+    auth: {
+      enabled: true,
+      username,
+      password,
+    },
+  };
 }

@@ -82,6 +82,7 @@ export class KaiInteractiveWorkflow
   private userInteractionPromises: Map<string, PendingUserInteraction>;
   private readonly logger: Logger;
   private workspaceDir: string;
+  private fsTools: FileSystemTools | undefined;
 
   constructor(logger: Logger) {
     super();
@@ -93,6 +94,7 @@ export class KaiInteractiveWorkflow
       component: "KaiInteractiveWorkflow",
     });
     this.workspaceDir = "";
+    this.fsTools = undefined;
 
     this.runToolsEdgeFunction = this.runToolsEdgeFunction.bind(this);
     this.analysisIssueFixRouterEdge = this.analysisIssueFixRouterEdge.bind(this);
@@ -101,12 +103,12 @@ export class KaiInteractiveWorkflow
 
   async init(options: KaiWorkflowInitOptions): Promise<void> {
     this.workspaceDir = fileUriToPath(options.workspaceDir);
-    const fsTools = new FileSystemTools(this.workspaceDir, options.fsCache, this.logger);
+    this.fsTools = new FileSystemTools(this.workspaceDir, options.fsCache, this.logger);
     const depTools = new JavaDependencyTools(options.toolCache, this.logger);
 
     const analysisIssueFixNodes = new AnalysisIssueFix(
       options.modelProvider,
-      fsTools.all(),
+      this.fsTools.all(),
       options.fsCache,
       this.workspaceDir,
       options.solutionServerClient,
@@ -118,13 +120,20 @@ export class KaiInteractiveWorkflow
     analysisIssueFixNodes.on("workflowMessage", async (msg: KaiWorkflowMessage) => {
       this.emitWorkflowMessage(msg);
     });
-    fsTools.on("workflowMessage", async (msg: KaiWorkflowMessage) => {
+    this.fsTools.on("workflowMessage", async (msg: KaiWorkflowMessage) => {
       this.emitWorkflowMessage(msg);
     });
 
+    // relay events from solution server client back to callers
+    if (options.solutionServerClient) {
+      options.solutionServerClient.on("workflowMessage", async (msg: KaiWorkflowMessage) => {
+        this.emitWorkflowMessage(msg);
+      });
+    }
+
     this.diagnosticsNodes = new DiagnosticsIssueFix(
       options.modelProvider,
-      fsTools.all(),
+      this.fsTools.all(),
       depTools.all(),
       this.workspaceDir,
       this.logger.child({
@@ -366,6 +375,13 @@ export class KaiInteractiveWorkflow
       await this.diagnosticsNodes?.resolveDiagnosticsPromise(response);
       return;
     }
+    if (
+      response.type === KaiWorkflowMessageType.UserInteraction &&
+      response.data.type === "modifiedFile"
+    ) {
+      this.fsTools?.resolveModifiedFilePromise(response);
+      return;
+    }
     const promise = this.userInteractionPromises.get(response.id);
     if (!promise) {
       return;
@@ -382,7 +398,8 @@ export class KaiInteractiveWorkflow
   async analysisIssueFixRouterEdge(
     state: typeof AnalysisIssueFixOrchestratorState.State,
   ): Promise<string | string[]> {
-    this.logger.debug(`Edge function called with state:`, {
+    // Use silly level to avoid expensive logging in production
+    this.logger.silly(`Edge function called with state:`, {
       hasInputFileContent: !!state.inputFileContent,
       hasInputFileUri: !!state.inputFileUri,
       hasInputIncidents: !!state.inputIncidents && state.inputIncidents.length > 0,
@@ -440,8 +457,18 @@ export class KaiInteractiveWorkflow
   async diagnosticsOrchestratorEdge(
     state: typeof DiagnosticsOrchestratorState.State,
   ): Promise<string> {
+    this.logger.info("diagnosticsOrchestratorEdge called", {
+      shouldEnd: state.shouldEnd,
+      hasCurrentAgent: !!state.currentAgent,
+      currentAgent: state.currentAgent,
+      hasCurrentTask: !!state.currentTask,
+      hasDiagnosticsTasks: !!state.inputDiagnosticsTasks?.length,
+      hasAdditionalInfo: !!state.inputSummarizedAdditionalInfo,
+      hasNominatedAgents: !!state.plannerOutputNominatedAgents?.length,
+    });
+
     if (state.shouldEnd) {
-      this.logger.silly("Going to END because shouldEnd is true");
+      this.logger.info("Going to END because shouldEnd is true");
       return END;
     }
     // if an agent is picked, we need to invoke it to do the next task
@@ -465,6 +492,7 @@ export class KaiInteractiveWorkflow
       this.logger.silly("Going to plan_fixes because currentTask is present");
       return "plan_fixes";
     }
+    this.logger.debug("Returning to orchestrate_plan_and_execution");
     return "orchestrate_plan_and_execution";
   }
 

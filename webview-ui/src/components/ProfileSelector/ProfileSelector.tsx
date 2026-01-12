@@ -26,6 +26,7 @@ interface ProfileSelectorProps {
   onChange: (newProfileId: string) => void;
   onManageProfiles: () => void;
   isDisabled?: boolean;
+  isInTreeMode?: boolean; // When true, profiles are managed externally (filesystem/hub)
 }
 
 export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
@@ -34,6 +35,7 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
   onChange,
   onManageProfiles,
   isDisabled = false,
+  isInTreeMode = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchInput, setSearchInput] = useState("");
@@ -106,19 +108,23 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
         )}
       </DropdownList>
 
-      <Divider />
+      {!isInTreeMode && (
+        <>
+          <Divider />
 
-      <DropdownItem
-        key="manage-profiles"
-        onClick={() => {
-          setIsOpen(false);
-          onManageProfiles();
-        }}
-        icon={<CogIcon />}
-        style={{ fontStyle: "italic", opacity: 0.9 }}
-      >
-        Manage Profiles
-      </DropdownItem>
+          <DropdownItem
+            key="manage-profiles"
+            onClick={() => {
+              setIsOpen(false);
+              onManageProfiles();
+            }}
+            icon={<CogIcon />}
+            style={{ fontStyle: "italic", opacity: 0.9 }}
+          >
+            Manage Profiles
+          </DropdownItem>
+        </>
+      )}
     </Dropdown>
   );
 };

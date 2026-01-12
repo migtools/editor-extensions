@@ -15,24 +15,30 @@ import { SentMessage } from "./SentMessage";
 import { ReceivedMessage } from "./ReceivedMessage";
 import { ToolMessage } from "./ToolMessage";
 import { ModifiedFileMessage } from "./ModifiedFile";
-import { useExtensionStateContext } from "../../context/ExtensionStateContext";
-import { Chatbot, ChatbotContent, ChatbotDisplayMode, MessageBox } from "@patternfly/chatbot";
+import { useExtensionStore } from "../../store/store";
+import { sendVscodeMessage as dispatch } from "../../utils/vscodeMessaging";
+import {
+  Chatbot,
+  ChatbotContent,
+  ChatbotDisplayMode,
+  ChatbotFootnote,
+  ChatbotFooter,
+  MessageBox,
+} from "@patternfly/chatbot";
 import { ChatCard } from "./ChatCard/ChatCard";
 import LoadingIndicator from "./LoadingIndicator";
 import { MessageWrapper } from "./MessageWrapper";
 import { useScrollManagement } from "../../hooks/useScrollManagement";
+import { BatchReviewExpandable } from "./BatchReview";
 
-// Unified hook for both modes
-const useResolutionData = (state: any) => {
-  const {
-    chatMessages = [],
-    localChanges = [],
-    solutionState = "none",
-    solutionScope,
-    solutionData: resolution,
-    isFetchingSolution = false,
-    isAnalyzing,
-  } = state;
+// Unified hook for both modes - using Zustand store
+const useResolutionData = () => {
+  // Force re-render on every chatMessages change by using object identity
+  const chatMessages = useExtensionStore((state) => state.chatMessages);
+  const solutionState = useExtensionStore((state) => state.solutionState);
+  const solutionScope = useExtensionStore((state) => state.solutionScope);
+  const isFetchingSolution = useExtensionStore((state) => state.isFetchingSolution);
+  const isAnalyzing = useExtensionStore((state) => state.isAnalyzing);
 
   const isTriggeredByUser = useMemo(
     () => Array.isArray(solutionScope?.incidents) && solutionScope?.incidents?.length > 0,
@@ -50,13 +56,8 @@ const useResolutionData = (state: any) => {
   }, [solutionState, chatMessages]);
 
   const hasResponseWithErrors = useMemo(
-    () =>
-      solutionState === "received" &&
-      resolution !== undefined &&
-      resolution !== null &&
-      Array.isArray(resolution.encountered_errors) &&
-      resolution.encountered_errors?.length > 0,
-    [solutionState, resolution],
+    () => false, // No longer tracking solution response errors
+    [solutionState],
   );
 
   return {
@@ -64,21 +65,19 @@ const useResolutionData = (state: any) => {
     hasNothingToView,
     hasContent,
     hasResponseWithErrors,
-    resolution,
     chatMessages,
-    localChanges,
     isFetchingSolution,
     isAnalyzing,
     solutionState,
   };
 };
 
-// Component for rendering user request messages
+// Component for rendering user request messages - memoized to prevent unnecessary re-renders
 const UserRequestMessages: React.FC<{
   solutionScope: any;
   onIncidentClick: (incident: Incident) => void;
   isReadOnly: boolean;
-}> = ({ solutionScope, onIncidentClick, isReadOnly }) => {
+}> = React.memo(({ solutionScope, onIncidentClick, isReadOnly }) => {
   const USER_REQUEST_MESSAGES: ChatMessage[] = [
     {
       kind: ChatMessageType.String,
@@ -116,26 +115,37 @@ const UserRequestMessages: React.FC<{
       ))}
     </>
   );
-};
+});
+
+UserRequestMessages.displayName = "UserRequestMessages";
 
 const ResolutionPage: React.FC = () => {
-  const { state, dispatch } = useExtensionStateContext();
-  const { solutionScope } = state;
+  // ✅ Selective subscriptions
+  const solutionScope = useExtensionStore((state) => state.solutionScope);
 
   // Unified data hook
-  const { isTriggeredByUser, hasNothingToView, chatMessages, isFetchingSolution, isAnalyzing } =
-    useResolutionData(state);
+  const {
+    isTriggeredByUser,
+    hasNothingToView,
+    chatMessages,
+    isFetchingSolution,
+    isAnalyzing,
+    solutionState,
+  } = useResolutionData();
+
+  // Show processing state while fetching solution from LLM
+  const isProcessing = isFetchingSolution;
 
   const { messageBoxRef, triggerScrollOnUserAction } = useScrollManagement(
     chatMessages,
-    isFetchingSolution,
+    isProcessing,
   );
 
   // Event handlers
   const handleIncidentClick = (incident: Incident) =>
     dispatch(openFile(incident.uri, incident.lineNumber ?? 0));
 
-  // Render chat messages
+  // Render chat messages - memoized to prevent unnecessary re-renders
   const renderChatMessages = useCallback(() => {
     if (!Array.isArray(chatMessages) || chatMessages?.length === 0) {
       return null;
@@ -163,11 +173,7 @@ const ResolutionPage: React.FC = () => {
         const fileData = msg.value as ModifiedFileMessageValue;
         return (
           <MessageWrapper key={msg.messageToken}>
-            <ModifiedFileMessage
-              data={fileData}
-              timestamp={msg.timestamp}
-              onUserAction={triggerScrollOnUserAction}
-            />
+            <ModifiedFileMessage data={fileData} timestamp={msg.timestamp} />
           </MessageWrapper>
         );
       }
@@ -197,7 +203,7 @@ const ResolutionPage: React.FC = () => {
 
       return null;
     });
-  }, [chatMessages, isFetchingSolution, isAnalyzing, triggerScrollOnUserAction]);
+  }, [chatMessages, isAnalyzing, triggerScrollOnUserAction]);
 
   return (
     <Page
@@ -211,8 +217,8 @@ const ResolutionPage: React.FC = () => {
       <PageSection>
         <Title headingLevel="h1" size="2xl" style={{ display: "flex", alignItems: "center" }}>
           Generative AI Results
-          {isFetchingSolution && <LoadingIndicator />}
-          {!isFetchingSolution && (
+          {isProcessing && <LoadingIndicator />}
+          {!isProcessing && solutionState === "received" && (
             <CheckCircleIcon style={{ marginLeft: "10px", color: "green" }} />
           )}
         </Title>
@@ -238,8 +244,23 @@ const ResolutionPage: React.FC = () => {
 
             {/* Render all content */}
             {renderChatMessages()}
+
+            {/* Batch Review Summary - shown when files are accumulated */}
+            {/* <BatchReviewSummary /> */}
           </MessageBox>
         </ChatbotContent>
+        <ChatbotFooter>
+          <BatchReviewExpandable />
+          <ChatbotFootnote
+            className="footnote"
+            label="Always review AI generated content prior to use."
+            popover={{
+              title: "Verify information",
+              description:
+                "AI is experimental and can make mistakes. We cannot guarantee that all information provided by AI is up to date or without error. You should always verify responses using reliable sources, especially for crucial information and decision making.",
+            }}
+          />
+        </ChatbotFooter>
       </Chatbot>
     </Page>
   );

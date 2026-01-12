@@ -1,6 +1,4 @@
-import { Uri } from "vscode";
-
-export type WebviewType = "sidebar" | "resolution" | "profiles";
+export type WebviewType = "sidebar" | "resolution" | "profiles" | "hub";
 
 export interface Incident {
   uri: string;
@@ -25,13 +23,22 @@ export interface SuccessRateMetric {
   unknown_solutions: number;
 }
 
-export interface SolutionServerConfig {
+export interface HubConfig {
   enabled: boolean;
   url: string;
   auth: {
     enabled: boolean;
-    realm: string;
+    username: string;
+    password: string;
     insecure: boolean;
+  };
+  features: {
+    solutionServer: {
+      enabled: boolean;
+    };
+    profileSync: {
+      enabled: boolean;
+    };
   };
 }
 
@@ -77,54 +84,6 @@ export interface RuleSet {
   skipped?: string[];
 }
 
-export interface GetSolutionParams {
-  file_path: string;
-  incidents: Incident[];
-}
-export interface Change {
-  // relative file path before the change, may be empty if file was created in this change
-  original: string;
-  // relative file path after the change, may be empty if file was deleted in this change
-  modified: string;
-  // diff in unified format - tested with git diffs
-  diff: string;
-  // solution server id
-  solutionId?: number;
-}
-
-export interface GetSolutionResult {
-  encountered_errors: string[];
-  changes: Change[];
-  scope: Scope;
-  clientId: string;
-}
-
-export interface LocalChange {
-  modifiedUri: Uri;
-  originalUri: Uri;
-  diff: string;
-  state: "pending" | "applied" | "discarded";
-  solutionId?: number;
-  clientId: string;
-  content?: string;
-  messageToken?: string;
-}
-
-export interface ResolutionMessage {
-  type: string;
-  solution: Solution;
-  violation: Violation;
-  incident: Incident;
-  isRelevantSolution: boolean;
-}
-
-export interface SolutionResponse {
-  diff: string;
-  encountered_errors: string[];
-  modified_files: string[];
-  clientId: string;
-}
-
 export interface Scope {
   incidents: EnhancedIncident[];
 }
@@ -133,14 +92,13 @@ export interface ScopeWithKonveyorContext {
   incident: EnhancedIncident;
 }
 
-export type Solution = GetSolutionResult | SolutionResponse;
-
 export enum ChatMessageType {
   String = "SimpleChatMessage",
   Markdown = "MarkdownChatMessage",
   JSON = "JsonChatMessage",
   Tool = "ToolChatMessage",
   ModifiedFile = "ModifiedFileChatMessage",
+  BatchReview = "BatchReviewChatMessage",
 }
 
 export interface QuickResponse {
@@ -160,15 +118,27 @@ export interface ChatMessage {
   quickResponses?: QuickResponse[];
   isCompact?: boolean;
   selectedResponse?: string;
+  userInteraction?: any;
+}
+
+export interface PendingBatchReviewFile {
+  messageToken: string;
+  path: string;
+  diff: string;
+  content: string;
+  originalContent?: string;
+  isNew: boolean;
+  isDeleted: boolean;
+  hasError?: boolean;
 }
 
 export interface ExtensionData {
   workspaceRoot: string;
-  localChanges: LocalChange[];
   ruleSets: RuleSet[];
   enhancedIncidents: EnhancedIncident[];
-  resolutionPanelData: any;
   isAnalyzing: boolean;
+  analysisProgress?: number;
+  analysisProgressMessage?: string;
   isFetchingSolution: boolean;
   isStartingServer: boolean;
   isInitializingServer: boolean;
@@ -176,17 +146,25 @@ export interface ExtensionData {
   isAnalysisScheduled: boolean;
   serverState: ServerState;
   solutionState: SolutionState;
-  solutionData?: Solution;
   solutionScope?: Scope;
   chatMessages: ChatMessage[];
   configErrors: ConfigError[];
+  llmErrors: LLMError[];
   profiles: AnalysisProfile[];
   activeProfileId: string | null;
+  isInTreeMode: boolean;
   solutionServerEnabled: boolean;
   isAgentMode: boolean;
   activeDecorators?: Record<string, string>;
   solutionServerConnected: boolean;
   isWaitingForUserInteraction?: boolean;
+  hubConfig: HubConfig | undefined;
+  isProcessingQueuedMessages?: boolean;
+  pendingBatchReview?: PendingBatchReviewFile[];
+  profileSyncEnabled: boolean;
+  profileSyncConnected: boolean;
+  isSyncingProfiles: boolean;
+  llmProxyAvailable: boolean;
 }
 
 export type ConfigErrorType =
@@ -198,7 +176,25 @@ export type ConfigErrorType =
   | "no-custom-rules"
   | "missing-auth-credentials"
   | "genai-disabled"
-  | "solution-server-disconnected";
+  | "solution-server-disconnected"
+  | "no-hub-profiles"
+  | "hub-profile-sync-failed";
+
+export type LLMErrorType =
+  | "workflow-initialization-failed"
+  | "llm-request-failed"
+  | "llm-response-parse-failed"
+  | "llm-timeout"
+  | "llm-rate-limit"
+  | "llm-context-limit"
+  | "llm-unknown-error";
+
+export interface LLMError {
+  type: LLMErrorType;
+  message: string;
+  error?: string;
+  timestamp: string;
+}
 
 export interface ConfigError {
   type: ConfigErrorType;
@@ -252,6 +248,69 @@ export const createConfigError = {
     error:
       "The solution server is enabled but not connected. AI-powered solution suggestions may not work properly.",
   }),
+
+  noHubProfiles: (): ConfigError => ({
+    type: "no-hub-profiles",
+    message: "No profiles available from Hub",
+    error:
+      "Profile sync is enabled but no profiles were found. Either the application is not registered in Hub, or it has no profiles configured. You can create local profiles or configure profiles in Hub.",
+  }),
+
+  hubProfileSyncFailed: (failedCount: number, totalCount: number, error?: string): ConfigError => ({
+    type: "hub-profile-sync-failed",
+    message: `Failed to sync ${failedCount} of ${totalCount} profiles from Hub`,
+    error:
+      error ||
+      "Some profiles could not be downloaded from Hub. The profile bundles may not be ready yet.",
+  }),
+};
+
+export const createLLMError = {
+  workflowInitializationFailed: (error?: string): LLMError => ({
+    type: "workflow-initialization-failed",
+    message: "Failed to initialize AI workflow. Please check your model configuration.",
+    error,
+    timestamp: new Date().toISOString(),
+  }),
+
+  llmRequestFailed: (error?: string): LLMError => ({
+    type: "llm-request-failed",
+    message: "Failed to get response from AI model. Please try again.",
+    error,
+    timestamp: new Date().toISOString(),
+  }),
+
+  llmResponseParseFailed: (error?: string): LLMError => ({
+    type: "llm-response-parse-failed",
+    message: "Failed to parse AI model response. The response format may be invalid.",
+    error,
+    timestamp: new Date().toISOString(),
+  }),
+
+  llmTimeout: (): LLMError => ({
+    type: "llm-timeout",
+    message: "AI model request timed out. Please try again or check your connection.",
+    timestamp: new Date().toISOString(),
+  }),
+
+  llmRateLimit: (): LLMError => ({
+    type: "llm-rate-limit",
+    message: "AI model rate limit exceeded. Please wait a moment before trying again.",
+    timestamp: new Date().toISOString(),
+  }),
+
+  llmContextLimit: (): LLMError => ({
+    type: "llm-context-limit",
+    message: "Request exceeds AI model context limit. Try analyzing fewer issues at once.",
+    timestamp: new Date().toISOString(),
+  }),
+
+  llmUnknownError: (error?: string): LLMError => ({
+    type: "llm-unknown-error",
+    message: "An unexpected error occurred with the AI model.",
+    error,
+    timestamp: new Date().toISOString(),
+  }),
 };
 
 export type ServerState =
@@ -300,13 +359,17 @@ export interface AnalysisProfile {
   useDefaultRules: boolean;
   labelSelector: string;
   readOnly?: boolean;
+  // Fields for in-tree and hub-synced profiles
+  source?: "local" | "hub" | "bundled";
+  version?: string;
+  syncedAt?: string;
 }
 
 export type ToolMessageValue = { toolName: string; toolStatus: string };
 
 export type ModifiedFileMessageValue = {
   path: string;
-  status?: "applied" | "rejected";
+  status?: "applied" | "rejected" | "no_changes_needed";
   content: string;
   originalContent?: string; // Original file content from ModifiedFileState
   isNew: boolean;
@@ -314,7 +377,24 @@ export type ModifiedFileMessageValue = {
   diff: string;
   messageToken?: string;
   quickResponses?: QuickResponse[];
+  userInteraction?: KaiUserInteraction;
+  readOnly?: boolean; // If true, don't show Apply/Reject buttons (just context)
 };
+export interface KaiUserInteraction {
+  type: "yesNo" | "choice" | "tasks" | "modifiedFile";
+  systemMessage: {
+    yesNo?: string;
+    choice?: string[];
+  };
+  response?: {
+    yesNo?: boolean;
+    choice?: number;
+    tasks?: {
+      uri: string;
+      task: string;
+    }[];
+  };
+}
 
 export interface ModifiedFileState {
   // if a file is newly created, original content can be undefined

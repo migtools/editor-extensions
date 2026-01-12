@@ -1,183 +1,66 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { execSync } from 'child_process';
-import { _electron as electron, FrameLocator } from 'playwright';
-import { ElectronApplication, expect, Page } from '@playwright/test';
-import { MIN, SEC } from '../utilities/consts';
-import { createZip, extractZip } from '../utilities/archive';
-import {
-  cleanupRepo,
-  generateRandomString,
-  getOSInfo,
-  writeOrUpdateSettingsJson,
-} from '../utilities/utils';
+import { FrameLocator } from 'playwright';
+import { expect, Page } from '@playwright/test';
+import { generateRandomString, getOSInfo } from '../utilities/utils';
 import { DEFAULT_PROVIDER } from '../fixtures/provider-configs.fixture';
 import { KAIViews } from '../enums/views.enum';
-import { TEST_DATA_DIR } from '../utilities/consts';
-import { BasePage } from './base.page';
-import { installExtension } from '../utilities/vscode-commands.utils';
 import { FixTypes } from '../enums/fix-types.enum';
-import { stubDialog } from 'electron-playwright-helpers';
-import { extensionId } from '../utilities/utils';
-
-const COMMAND_CATEGORY = process.env.TEST_CATEGORY || 'Konveyor';
+import { ProfileActions } from '../enums/profile-action-types.enum';
+import { OutputPanel } from './output.page';
+import path from 'path';
+import { SCREENSHOTS_FOLDER } from '../utilities/consts';
+import { ResolutionAction } from '../enums/resolution-action.enum';
 
 type SortOrder = 'ascending' | 'descending';
 type ListKind = 'issues' | 'files';
 
-export class VSCode extends BasePage {
-  constructor(
-    app: ElectronApplication,
-    window: Page,
-    private readonly repoDir?: string
-  ) {
-    super(app, window);
-  }
+export abstract class VSCode {
+  repoDir?: string;
+  protected branch?: string;
+  protected abstract window: Page;
+  public static readonly COMMAND_CATEGORY = process.env.TEST_CATEGORY || 'Konveyor';
 
-  public static async open(repoUrl?: string, repoDir?: string, branch = 'main') {
-    /**
-     * user-data-dir is passed to force opening a new instance avoiding the process to couple with an existing vscode instance
-     * so Playwright doesn't detect that the process has finished
-     */
-    const args = [
-      '--disable-workspace-trust',
-      '--skip-welcome',
-      `--user-data-dir=${TEST_DATA_DIR}`,
-    ];
-
-    try {
-      if (repoUrl) {
-        if (repoDir) {
-          await cleanupRepo(repoDir);
-        }
-        console.log(`Cloning repository from ${repoUrl} -b ${branch}`);
-        execSync(`git clone ${repoUrl} -b ${branch}`);
-      }
-    } catch (error: any) {
-      throw new Error('Failed to clone the repository');
-    }
-
-    if (repoDir) {
-      args.push(path.resolve(repoDir));
-    }
-
-    // set the log level prior to starting vscode
-    writeOrUpdateSettingsJson(path.join(repoDir ?? '', '.vscode', 'settings.json'), {
-      'konveyor.logLevel': 'silly',
-    });
-
-    let executablePath = process.env.VSCODE_EXECUTABLE_PATH;
-    if (!executablePath) {
-      if (getOSInfo() === 'linux') {
-        executablePath = '/usr/share/code/code';
-      } else {
-        throw new Error('VSCODE_EXECUTABLE_PATH env variable not provided');
-      }
-    }
-
-    if (!process.env.VSIX_FILE_PATH && !process.env.VSIX_DOWNLOAD_URL) {
-      args.push(
-        `--extensionDevelopmentPath=${path.resolve(__dirname, '../../../vscode')}`,
-        `--enable-proposed-api=${extensionId}`
-      );
-      console.log('Running in DEV mode...');
-    }
-
-    console.log(`Code command: ${executablePath} ${args.join(' ')}`);
-
-    const vscodeApp = await electron.launch({
-      executablePath: executablePath,
-      args,
-      env: {
-        ...process.env,
-        __TEST_EXTENSION_END_TO_END__: 'true',
-      },
-    });
-    await vscodeApp.firstWindow();
-
-    const window = await vscodeApp.firstWindow({ timeout: 60000 });
-    console.log('VSCode opened');
-    const vscode = new VSCode(vscodeApp, window, repoDir);
-
-    // Wait for extension initialization in downstream environment
-    await vscode.waitForExtensionInitialization();
-
-    return vscode;
+  /**
+   * Gets the OutputPanel instance for this VSCode instance.
+   * Provides access to output channel operations.
+   */
+  public get outputPanel(): OutputPanel {
+    return OutputPanel.getInstance(this);
   }
 
   /**
-   * launches VSCode with KAI plugin installed and repoUrl app opened.
-   * @param repoUrl
-   * @param repoDir path to repo
-   * @param branch optional branch to clone from
+   * Unzips all test data into workspace .vscode/ directory, only deletes the zip files if cleanup is true
    */
-  public static async init(repoUrl?: string, repoDir?: string, branch?: string): Promise<VSCode> {
-    try {
-      if (process.env.VSIX_FILE_PATH || process.env.VSIX_DOWNLOAD_URL) {
-        await installExtension();
-      }
+  public abstract ensureLLMCache(cleanup: boolean): Promise<void>;
+  public abstract updateLLMCache(): Promise<void>;
+  protected abstract selectCustomRules(customRulesPath: string): Promise<void>;
+  public abstract closeVSCode(): Promise<void>;
+  public abstract pasteContent(content: string): Promise<void>;
+  public abstract ensureDebugArchive(): Promise<void>;
+  public abstract getWindow(): Page;
 
-      return repoUrl ? VSCode.open(repoUrl, repoDir, branch) : VSCode.open();
-    } catch (error) {
-      console.error('Error launching VSCode:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Closes the VSCode instance.
-   */
-  public async closeVSCode(): Promise<void> {
-    try {
-      if (this.app) {
-        await this.app.close();
-        console.log('VSCode closed successfully.');
-      }
-    } catch (error) {
-      console.error('Error closing VSCode:', error);
-    }
-  }
-
-  /**
-   * Waits for the Konveyor extension to complete initialization by watching for
-   * the __EXTENSION_INITIALIZED__ info message signal.
-   */
-  public async waitForExtensionInitialization(): Promise<void> {
-    try {
-      console.log('Waiting for Konveyor extension initialization...');
-
-      // Trigger extension activation by opening the analysis view
-      // This was working before - the extension activates and opens the view
-      await this.executeQuickCommand(`${COMMAND_CATEGORY}: Open Analysis View`);
-
-      // Now wait for the initialization signal message to appear
-      // This message is shown by the extension when __TEST_EXTENSION_END_TO_END__ env var is set
-      const initializationMessage = this.window
-        .getByRole('alert')
-        .getByText('__EXTENSION_INITIALIZED__');
-      await expect(initializationMessage).toBeVisible({ timeout: 300000 }); // 5 minute timeout for asset downloads
-
-      // Dismiss the message
-      await this.window.keyboard.press('Escape');
-      await this.window.waitForTimeout(2000); // Give VSCode a chance to process the message
-      console.log('Konveyor extension initialized successfully');
-    } catch (error) {
-      console.error('Failed to wait for extension initialization:', error);
-      throw error;
-    }
+  protected llmCachePaths(): {
+    storedPath: string; // this is where the data is checked-in in the repo
+    workspacePath: string; // this is where a workspace is expecting to find cached data
+  } {
+    return {
+      storedPath: path.join(__dirname, '..', '..', 'data', 'llm_cache.zip'),
+      workspacePath: path.join(this.repoDir ?? '', '.vscode', 'cache'),
+    };
   }
 
   public async executeQuickCommand(command: string) {
     await this.waitDefault();
+    await this.window.locator('body').focus();
     const modifier = getOSInfo() === 'macOS' ? 'Meta' : 'Control';
     await this.window.keyboard.press(`${modifier}+Shift+P`, { delay: 500 });
     const input = this.window.getByPlaceholder('Type the name of a command to run.');
+    await expect(input).toBeVisible({ timeout: 10_000 });
     await input.fill(`>${command}`);
-    await expect(
-      this.window.locator(`a.label-name span.highlight >> text="${command}"`)
-    ).toBeVisible();
-
-    await input.press('Enter', { delay: 500 });
+    const commandLocator = this.window
+      .locator('a')
+      .filter({ hasText: new RegExp(`^${command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) });
+    await expect(commandLocator).toBeVisible();
+    await commandLocator.click();
   }
 
   public async openLeftBarElement(name: string) {
@@ -204,7 +87,7 @@ export class VSCode extends BasePage {
   public async openAnalysisView(): Promise<void> {
     // Try using command palette first - this works reliably when extension is hidden due to too many extensions
     try {
-      await this.executeQuickCommand(`${COMMAND_CATEGORY}: Open Analysis View`);
+      await this.executeQuickCommand(`${VSCode.COMMAND_CATEGORY}: Open Analysis View`);
       return;
     } catch (error) {
       console.log('Command palette approach failed:', error);
@@ -212,8 +95,8 @@ export class VSCode extends BasePage {
 
     // Fallback to activity bar approach
     try {
-      await this.openLeftBarElement(COMMAND_CATEGORY);
-      await this.window.getByText(`${COMMAND_CATEGORY} Issues`).dblclick();
+      await this.openLeftBarElement(VSCode.COMMAND_CATEGORY);
+      await this.window.getByText(`${VSCode.COMMAND_CATEGORY} Issues`).dblclick();
       await this.window.locator(`a[aria-label*="Analysis View"]`).click();
     } catch (error) {
       console.log('Activity bar approach failed:', error);
@@ -264,14 +147,30 @@ export class VSCode extends BasePage {
     await toggleFilterButton.click();
   }
 
+  /**
+   * Checks if the server is running by verifying the presence of the "Running" label
+   * inside the unique ".server-status-wrapper" element.
+   * @returns {Promise<boolean>} Whether the server is running or not
+   */
+  public async isServerRunning(): Promise<boolean> {
+    await this.openAnalysisView();
+    const analysisView = await this.getView(KAIViews.analysisView);
+    const serverStatusWrapper = analysisView.locator('.server-status-wrapper');
+    const runningLabel = serverStatusWrapper.getByText('Running', { exact: true });
+    return await runningLabel.isVisible({ timeout: 5000 }).catch(() => false);
+  }
+
   public async runAnalysis() {
     await this.window.waitForTimeout(15000);
+    await this.openAnalysisView();
     const analysisView = await this.getView(KAIViews.analysisView);
 
     try {
       // Ensure server is running before attempting analysis
-      const stopButton = analysisView.getByRole('button', { name: 'Stop' });
-      await expect(stopButton).toBeVisible({ timeout: 30000 });
+      const serverRunning = await this.isServerRunning();
+      if (!serverRunning) {
+        throw new Error('Cannot run analysis: server is not running.');
+      }
 
       const runAnalysisBtnLocator = analysisView.getByRole('button', {
         name: 'Run Analysis',
@@ -284,14 +183,33 @@ export class VSCode extends BasePage {
       await runAnalysisBtnLocator.click();
 
       console.log('Waiting for analysis progress indicator...');
-      await expect(analysisView.getByText('Analysis Progress').first()).toBeVisible({
-        timeout: 60000,
-      });
+      await expect(this.isAnalysisRunning()).resolves.toBe(true);
       console.log('Analysis started successfully');
     } catch (error) {
       console.log('Error running analysis:', error);
       throw error;
     }
+  }
+
+  public async isAnalysisRunning(): Promise<boolean> {
+    const analysisView = await this.getView(KAIViews.analysisView);
+    return await analysisView.getByText('Analysis Progress').first().isVisible();
+  }
+
+  public async waitForAnalysisCompleted(): Promise<void> {
+    const notificationLocator = this.window.locator('.notification-list-item-message span', {
+      hasText: 'Analysis completed successfully!',
+    });
+    await expect(notificationLocator).toBeVisible({ timeout: 10 * 60 * 1000 }); // up to 10 minutes
+  }
+
+  public async waitForFileSolutionAccepted(fileName: string): Promise<void> {
+    const notificationLocator = this.window.locator('.notification-list-item-message span', {
+      hasText: new RegExp(
+        `Auto-accepted all diff changes for .*${fileName}.* - saving final state`
+      ),
+    });
+    await expect(notificationLocator).toBeVisible({ timeout: 1 * 60 * 1000 }); // up to 1 minute
   }
 
   /**
@@ -301,19 +219,20 @@ export class VSCode extends BasePage {
    */
   public async setListKindAndSort(kind: ListKind, order: SortOrder): Promise<void> {
     const analysisView = await this.getView(KAIViews.analysisView);
-    const kindButton = analysisView.getByRole('button', {
-      name: kind === 'issues' ? 'Issues' : 'Files',
-    });
-    const toggleFilterButton = analysisView.locator('button[aria-label="Show Filters"]');
+    const groupByDropdownFilter = analysisView.locator('#group-by-filter-dropdown');
+    const kindButton = analysisView.locator(
+      `#group-by-${kind === 'issues' ? 'violation' : 'file'}-filter`
+    );
 
-    if (!(await kindButton.isVisible()) && (await toggleFilterButton.isVisible())) {
-      await toggleFilterButton.click();
-    }
-
+    await expect(groupByDropdownFilter).toBeVisible({ timeout: 5_000 });
+    await expect(groupByDropdownFilter).toBeEnabled({ timeout: 3_000 });
+    await groupByDropdownFilter.click();
     await expect(kindButton).toBeVisible({ timeout: 5_000 });
     await expect(kindButton).toBeEnabled({ timeout: 3_000 });
     await kindButton.click();
-    await expect(kindButton).toHaveAttribute('aria-pressed', 'true');
+    await groupByDropdownFilter.click();
+    await expect(kindButton).toHaveAttribute('aria-selected', 'true');
+
     const sortButton = analysisView.getByRole('button', {
       name: order === 'ascending' ? 'Sort ascending' : 'Sort descending',
     });
@@ -403,17 +322,20 @@ export class VSCode extends BasePage {
 
   public async configureGenerativeAI(config: string = DEFAULT_PROVIDER.config) {
     await this.executeQuickCommand(
-      `${COMMAND_CATEGORY}: Open the GenAI model provider configuration file`
+      `${VSCode.COMMAND_CATEGORY}: Open the GenAI model provider configuration file`
     );
-
+    const fileTab = this.window.locator('div[data-resource-name="provider-settings.yaml"]');
+    await expect(fileTab).toBeVisible();
+    expect(await fileTab.getAttribute('aria-selected')).toBe('true');
     const modifier = getOSInfo() === 'macOS' ? 'Meta' : 'Control';
     await this.window.keyboard.press(`${modifier}+a+Delete`);
     await this.pasteContent(config);
     await this.window.keyboard.press(`${modifier}+s`, { delay: 500 });
+    await this.waitDefault();
   }
 
   public async findDebugArchiveCommand(): Promise<string> {
-    return `${COMMAND_CATEGORY}: Generate Debug Archive`;
+    return `${VSCode.COMMAND_CATEGORY}: Generate Debug Archive`;
   }
 
   public async createProfile(
@@ -422,7 +344,7 @@ export class VSCode extends BasePage {
     profileName?: string,
     customRulesPath?: string
   ) {
-    await this.executeQuickCommand(`${COMMAND_CATEGORY}: Manage Analysis Profile`);
+    await this.executeQuickCommand(`${VSCode.COMMAND_CATEGORY}: Manage Analysis Profile`);
 
     const manageProfileView = await this.getView(KAIViews.manageProfiles);
 
@@ -456,33 +378,8 @@ export class VSCode extends BasePage {
     }
     await this.window.keyboard.press('Escape');
 
-    // Select Custom Rules if provided
     if (customRulesPath) {
-      console.log(`Creating profile with custom rules from: ${customRulesPath}`);
-
-      const customRulesButton = manageProfileView.getByRole('button', {
-        name: 'Select Custom Rules…',
-      });
-
-      if (await customRulesButton.isVisible()) {
-        await stubDialog(this.app, 'showOpenDialog', {
-          filePaths: [customRulesPath],
-          canceled: false,
-        });
-
-        await customRulesButton.click();
-
-        const folderName = path.basename(customRulesPath);
-        console.log(
-          `Waiting for custom rules label with folder name: "${folderName}" from path: "${customRulesPath}"`
-        );
-
-        const customRulesLabel = manageProfileView
-          .locator('[class*="label"], [class*="Label"]')
-          .filter({ hasText: folderName });
-        await expect(customRulesLabel.first()).toBeVisible({ timeout: 30000 });
-        console.log(`Custom rules label for "${folderName}" is now visible`);
-      }
+      await this.selectCustomRules(customRulesPath);
     }
     return nameToUse;
   }
@@ -490,7 +387,7 @@ export class VSCode extends BasePage {
   public async deleteProfile(profileName: string) {
     try {
       console.log(`Attempting to delete profile: ${profileName}`);
-      await this.executeQuickCommand(`${COMMAND_CATEGORY}: Manage Analysis Profile`);
+      await this.executeQuickCommand(`${VSCode.COMMAND_CATEGORY}: Manage Analysis Profile`);
       const manageProfileView = await this.getView(KAIViews.manageProfiles);
 
       const profileList = manageProfileView.getByRole('list', {
@@ -509,7 +406,7 @@ export class VSCode extends BasePage {
       }
 
       console.log(`Found profile '${profileName}', proceeding with deletion`);
-      await targetProfile.click({ timeout: 30000 });
+      await targetProfile.click({ timeout: 60000 });
 
       const deleteButton = manageProfileView.getByRole('button', { name: 'Delete Profile' });
       await deleteButton.waitFor({ state: 'visible', timeout: 10000 });
@@ -550,67 +447,67 @@ export class VSCode extends BasePage {
     }
   }
 
-  public async searchAndRequestFix(searchTerm: string, fixType: FixTypes) {
+  public async searchAndRequestAction(
+    searchTerm?: string,
+    fixType?: FixTypes,
+    resolutionAction?: ResolutionAction
+  ) {
+    // (midays) todo: add a filesToFix: string[] parameter to define which files to fix
     const analysisView = await this.getView(KAIViews.analysisView);
-    await this.searchViolation(searchTerm);
-    await analysisView.locator('div.pf-v6-c-card__header-toggle').nth(0).click();
-    await analysisView.locator('button#get-solution-button').nth(fixType).click();
-  }
 
-  /**
-   * Unzips all test data into workspace .vscode/ directory, deletes the zip files if cleanup is true
-   */
-  public async ensureLLMCache(cleanup: boolean = false): Promise<void> {
-    try {
-      const wspacePath = this.llmCachePaths().workspacePath;
-      const storedPath = this.llmCachePaths().storedPath;
-      if (cleanup) {
-        if (fs.existsSync(wspacePath)) {
-          fs.rmSync(wspacePath, { recursive: true, force: true });
-        }
-        return;
-      }
-      if (!fs.existsSync(wspacePath)) {
-        fs.mkdirSync(wspacePath, { recursive: true });
-      }
-      if (!fs.existsSync(storedPath)) {
-        return;
-      }
-      // move stored zip to workspace
-      extractZip(storedPath, wspacePath);
-    } catch (error) {
-      console.error('Error unzipping test data:', error);
-      throw error;
+    if (searchTerm) {
+      await this.searchViolation(searchTerm);
+      await analysisView.locator('div.pf-v6-c-card__header-toggle').nth(0).click();
     }
-  }
 
-  /**
-   * Copies all newly generated LLM cache data into a zip file in the repo, merges with the existing data
-   * This will be used when we want to generate a new cache data
-   */
-  public async updateLLMCache() {
-    const newCacheZip = path.join(path.dirname(this.llmCachePaths().storedPath), 'new.zip');
-    createZip(this.llmCachePaths().workspacePath, newCacheZip);
-    fs.renameSync(newCacheZip, this.llmCachePaths().storedPath);
-    fs.renameSync(`${newCacheZip}.metadata`, `${this.llmCachePaths().storedPath}.metadata`);
-  }
+    if (fixType) {
+      await analysisView.locator('button#get-solution-button').nth(fixType).click();
+    }
 
-  private llmCachePaths(): {
-    storedPath: string; // this is where the data is checked-in in the repo
-    workspacePath: string; // this is where a workspace is expecting to find cached data
-  } {
-    return {
-      storedPath: path.join(__dirname, '..', '..', 'data', 'llm_cache.zip'),
-      workspacePath: path.join(this.repoDir ?? '', '.vscode', 'cache'),
-    };
-  }
+    if (resolutionAction) {
+      const resolutionView = await this.getView(KAIViews.resolutionDetails);
+      const actionLocator = resolutionView.getByRole('button', {
+        name: new RegExp(resolutionAction),
+      });
+      const headerLocator = resolutionView.locator('h1.pf-v6-c-title.pf-m-2xl', {
+        hasText: 'Generative AI Results',
+      });
+      await expect(headerLocator.locator('.loading-indicator')).toHaveCount(0, {
+        timeout: 600_000,
+      }); // 10 minutes
 
-  /**
-   * Writes or updates the VSCode settings.json file to current workspace @ .vscode/settings.json
-   * @param settings - Key - value pair of settings to write or update, if a setting already exists, the new values will be merged
-   */
-  public async writeOrUpdateVSCodeSettings(settings: Record<string, any>): Promise<void> {
-    writeOrUpdateSettingsJson(path.join(this.repoDir ?? '', '.vscode', 'settings.json'), settings);
+      if (resolutionAction !== ResolutionAction.Accept) {
+        await actionLocator.waitFor({ state: 'visible', timeout: 30000 });
+        await actionLocator.dispatchEvent('click');
+        return [];
+      }
+
+      await this.window.screenshot({
+        path: `${SCREENSHOTS_FOLDER}/solution-requested.png`,
+      });
+
+      const fixedFiles: string[] = [];
+      // Parse the "(current of total)" from the header to get file count
+      const reviewHeaderLocator = resolutionView.locator(
+        '.batch-review-expandable-header .batch-review-title'
+      );
+      await reviewHeaderLocator.waitFor({ state: 'visible', timeout: 10000 });
+      let headerText = await reviewHeaderLocator.textContent();
+      const match = headerText && headerText.match(/\((\d+)\s+of\s+(\d+)\)/);
+      const totalFiles = match ? parseInt(match[2], 10) : 1;
+      console.log('Total files found to accept solutions for: ', totalFiles);
+      for (let i = 0; i < totalFiles; i++) {
+        headerText = await reviewHeaderLocator.textContent();
+        const fileNameMatch = headerText && headerText.match(/^Reviewing:\s*([^\(]+)\s*\(/);
+        const fileToFix = fileNameMatch && fileNameMatch[1] ? fileNameMatch[1].trim() : '';
+        console.log('Reviewing file: ', fileToFix);
+        fixedFiles.push(fileToFix);
+        await actionLocator.waitFor({ state: 'visible', timeout: 10000 });
+        await actionLocator.dispatchEvent('click');
+        console.log('Accepted solution for file: ', fileToFix);
+      }
+      return fixedFiles;
+    }
   }
 
   public async waitForSolutionConfirmation(): Promise<void> {
@@ -620,7 +517,7 @@ export class VSCode extends BasePage {
 
     // Wait for both conditions to be true concurrently
     await Promise.all([
-      // 1. Wait for the button to be enabled (color is back to default)
+      // 1. Wait for the button to be enabled
       expect(solutionButton.first()).not.toBeDisabled({ timeout: 3600000 }),
 
       // 2. Wait for the blocking overlay to disappear
@@ -628,31 +525,278 @@ export class VSCode extends BasePage {
     ]);
   }
 
-  public async acceptAllSolutions() {
-    const resolutionView = await this.getView(KAIViews.resolutionDetails);
-    const fixLocator = resolutionView.locator('button[aria-label="Accept all changes"]');
-    const loadingIndicator = resolutionView.locator('.loading-indicator');
+  public async waitDefault() {
+    await this.window.waitForTimeout(process.env.CI ? 5000 : 3000);
+  }
 
-    await this.waitDefault();
-    // Avoid fixing issues forever
-    const MAX_FIXES = 500;
+  public async openConfiguration() {
+    const analysisView = await this.getView(KAIViews.analysisView);
+    await analysisView.locator('button[aria-label="Configuration"]').first().click();
+  }
 
-    for (let i = 0; i < MAX_FIXES; i++) {
-      await expect(fixLocator.first()).toBeVisible({ timeout: 60000 });
-      // Ensures the button is clicked even if there are notifications overlaying it due to screen size
-      await fixLocator.first().dispatchEvent('click');
-      await this.waitDefault();
+  public async closeConfiguration(): Promise<void> {
+    const analysisView = await this.getView(KAIViews.analysisView);
+    const closeButton = analysisView.locator('button[aria-label="Close drawer panel"]');
+    await expect(closeButton).toBeVisible({ timeout: 5000 });
+    await closeButton.click();
+    await expect(closeButton).not.toBeVisible({ timeout: 5000 });
+  }
 
-      if (!(await loadingIndicator.isVisible())) {
-        return;
+  public async waitForGenAIConfigurationCompleted(): Promise<void> {
+    await this.openAnalysisView();
+    const analysisView = await this.getView(KAIViews.analysisView);
+    await this.openConfiguration();
+    const genaiCard = analysisView.locator('.pf-v6-c-card__header:has-text("Configure GenAI")');
+    const completedLabel = genaiCard.getByText('Completed', { exact: true });
+    await expect(completedLabel).toBeVisible({ timeout: 30000 });
+    await this.closeConfiguration();
+  }
+
+  /**
+   * Writes or updates the VSCode settings.json file to current user @ .vscode/settings.json
+   * @param settings - Key - value: A pair of settings to write or update, if a setting already exists, the new values will be merged
+   */
+  public async openWorkspaceSettingsAndWrite(settings: Record<string, any>): Promise<void> {
+    await this.executeQuickCommand('Preferences: Open User Settings (JSON)');
+
+    const modifier = getOSInfo() === 'macOS' ? 'Meta' : 'Control';
+    const editor = this.window.locator('.monaco-editor .view-lines').first();
+    await expect(editor).toBeVisible({ timeout: 10000 });
+    await editor.click();
+    await this.window.waitForTimeout(200);
+
+    let editorContent = '';
+    try {
+      editorContent = await editor.innerText();
+    } catch {
+      editorContent = '{}';
+    }
+
+    let existingSettings: Record<string, any> = {};
+    try {
+      existingSettings = editorContent ? JSON.parse(editorContent.replace(/\u00A0/g, ' ')) : {};
+    } catch {
+      existingSettings = {};
+    }
+
+    const newContent = JSON.stringify(
+      {
+        ...existingSettings,
+        ...settings,
+      },
+      null,
+      2
+    );
+    console.log(`Writing \n ${newContent} \n into settings.`);
+
+    await editor.click();
+    await this.window.keyboard.press(`${modifier}+a`);
+    await this.window.waitForTimeout(100);
+    await this.window.keyboard.press('Backspace');
+    await this.window.waitForTimeout(100);
+    await this.pasteContent(newContent);
+
+    await this.window.keyboard.press(`${modifier}+s`, { delay: 500 });
+    await this.window.screenshot({
+      path: `${SCREENSHOTS_FOLDER}/last-config.png`,
+    });
+    await this.window.waitForTimeout(300);
+    await this.window.keyboard.press(`${modifier}+w`);
+  }
+
+  /**
+   * Opens the Konveyor command to configure Solution Server credentials,
+   * then types username and password into the respective input fields.
+   * All commands are executed from the project folder
+   * @param username - Username for solution server
+   * @param password - Password for solution server
+   */
+  public async configureSolutionServerCredentials(
+    username: string,
+    password: string
+  ): Promise<void> {
+    await this.executeQuickCommand(
+      `${VSCode.COMMAND_CATEGORY}: Configure Solution Server Credentials`
+    );
+
+    const usernameInput = this.window.getByRole('textbox', { name: 'input' });
+    await expect(usernameInput).toBeVisible({ timeout: 5000 });
+    await usernameInput.fill(username);
+    await usernameInput.press('Enter');
+
+    const passwordInput = this.window.getByRole('textbox', { name: 'input' });
+    await expect(passwordInput).toBeVisible({ timeout: 5000 });
+    await passwordInput.fill(password);
+    await passwordInput.press('Enter');
+  }
+
+  public async executeTerminalCommand(command: string, expectedOutput?: string, outputShouldBeVisible: boolean = true): Promise<void> {
+    if (!this.repoDir || !this.branch) {
+      throw new Error('executeTerminalCommand requires repoDir and branch to be set');
+    }
+    if (!(await this.window.getByRole('tab', { name: 'Terminal' }).isVisible())) {
+      await this.executeQuickCommand(`View: Toggle Terminal`);
+    }
+
+    await expect(this.window.locator('.terminal-widget-container')).toBeVisible();
+    await this.window.keyboard.type(`cd /projects/${this.repoDir}`);
+    await this.window.keyboard.press('Enter');
+    await expect(this.window.getByText(`${this.repoDir} (${this.branch})`).last()).toBeVisible();
+    await this.window.keyboard.type(command);
+    await this.window.keyboard.press('Enter');
+    if (expectedOutput) {
+      if (outputShouldBeVisible) {
+        await expect(this.window.getByText(expectedOutput).first()).toBeVisible();
+      } else {
+        await expect(this.window.getByText(expectedOutput).first()).not.toBeVisible();
       }
     }
 
-    throw new Error('MAX_FIXES limit reached while requesting solutions');
+    await this.executeQuickCommand(`View: Toggle Terminal`);
+    await expect(this.window.locator('.terminal-widget-container')).not.toBeVisible();
   }
 
-  public async searchViolationAndAcceptAllSolutions(violation: string) {
-    await this.searchAndRequestFix(violation, FixTypes.Issue);
-    await this.acceptAllSolutions();
+  public async getIssuesCount(): Promise<number> {
+    const analysisView = await this.getView(KAIViews.analysisView);
+    const issuesCount = analysisView.locator('.violations-count h4.violations-title');
+    const issuesText = await issuesCount.textContent();
+    const issuesMatch = issuesText?.match(/Total Issues:\s*(\d+)/i);
+    return Number(issuesMatch?.[1]);
+  }
+
+  public async getIncidentsCount(): Promise<number> {
+    const analysisView = await this.getView(KAIViews.analysisView);
+    const incidentsCount = analysisView.locator('.violations-count small.violations-subtitle');
+    const incidentsText = await incidentsCount.textContent();
+    const incidentsMatch = incidentsText?.match(/\(([\d,]+)\s+incidents?\s+found\)/i);
+    return Number(incidentsMatch?.[1].replace(/,/g, ''));
+  }
+
+  private async getProfileContainerByName(profileName: string, profileView: FrameLocator) {
+    const profileList = profileView.getByRole('list', {
+      name: 'Profile list',
+    });
+    await profileList.waitFor({ state: 'visible', timeout: 30000 });
+
+    const targetProfile = profileList.locator(
+      `//li[.//span[normalize-space() = "${profileName}" or normalize-space() = "${profileName} (active)"]]`
+    );
+    await expect(targetProfile).toHaveCount(1, { timeout: 60000 });
+    return targetProfile;
+  }
+
+  public async clickOnProfileContainer(profileName: string, profileView: FrameLocator) {
+    const targetProfile = await this.getProfileContainerByName(profileName, profileView);
+    await targetProfile.click({ timeout: 60000 });
+  }
+
+  public async activateProfile(profileName: string, profileView?: FrameLocator) {
+    const pageView = profileView ? profileView : await this.getView(KAIViews.manageProfiles);
+    await this.clickOnProfileContainer(profileName, pageView);
+    const activationButton = pageView.getByRole('button', { name: 'Make Active' });
+    await activationButton.waitFor({ state: 'visible', timeout: 10000 });
+    await activationButton.click();
+    const activeProfileButton = pageView.getByRole('button', { name: 'Active Profile' });
+    await expect(activeProfileButton).toBeVisible({ timeout: 30000 });
+    await expect(activeProfileButton).toBeDisabled({ timeout: 30000 });
+  }
+
+  public async doProfileMenuButtonAction(
+    profileName: string,
+    actionName: ProfileActions,
+    profileView?: FrameLocator
+  ) {
+    let manageProfileView = profileView ? profileView : await this.getView(KAIViews.manageProfiles);
+    const targetProfile = await this.getProfileContainerByName(profileName, manageProfileView);
+    const kebabMenuButton = targetProfile.getByLabel('Profile actions menu');
+    await kebabMenuButton.click();
+    await manageProfileView.getByRole('menuitem', { name: actionName }).click();
+    await this.waitDefault();
+    if (actionName === ProfileActions.deleteProfile) {
+      const confirmButton = manageProfileView
+        .getByRole('dialog', { name: 'Delete profile?' })
+        .getByRole('button', { name: 'Confirm' });
+      await confirmButton.click();
+    }
+  }
+
+  public async removeProfileCustomRules(profileName: string, pageView?: FrameLocator) {
+    const profileView = pageView ? pageView : await this.getView(KAIViews.manageProfiles);
+    await this.clickOnProfileContainer(profileName, profileView);
+    const customRuleList = profileView.getByRole('list', { name: 'Custom Rules' });
+    const removeButtons = customRuleList.getByRole('button', { name: 'Remove rule' });
+    const rulesInList = await removeButtons.count();
+    for (let i = 0; i < rulesInList; i++) {
+      await removeButtons.first().click();
+    }
+    await expect(removeButtons).toHaveCount(0);
+  }
+
+  public async getCurrActiveProfile() {
+    const view = await this.getView(KAIViews.manageProfiles);
+    const activeProfileLocator = view.locator('span:has(em:text-is("(active)"))');
+    const fullText = await activeProfileLocator.textContent();
+    if (fullText == null) {
+      throw new Error('No active profile found');
+    }
+    const profileName = fullText.replace('(active)', '').trim();
+    return profileName;
+  }
+
+  public async getAllIssues(): Promise<{ title: string; incidentsCount: number }[]> {
+    const analysisView = await this.getView(KAIViews.analysisView);
+
+    // Locate all issue cards by unique class for each header (adapt as needed)
+    const fillContainer = analysisView.locator('.pf-v6-l-stack__item.pf-m-fill');
+    const issueCards = fillContainer.locator('.pf-v6-c-card__header');
+    const issueCount = await issueCards.count();
+    const results: { title: string; incidentsCount: number }[] = [];
+
+    for (let i = 0; i < issueCount; i++) {
+      const card = issueCards.nth(i);
+      // Find h3 in the card for the title
+      const headerMain = card.locator('.pf-v6-c-card__header-main h3');
+      let title = '';
+      try {
+        title = (await headerMain.textContent())?.trim() ?? '';
+      } catch {
+        title = '';
+      }
+
+      // Look for "incidents" string inside a '.pf-v6-c-label__text' element within the card
+      let incidentsCount = 0;
+      try {
+        const label = card.locator('.pf-v6-c-label__text');
+        const labelText = (await label.textContent()) ?? '';
+        const match = labelText.match(/(\d+)\s+incidents?/i);
+        if (match) {
+          incidentsCount = parseInt(match[1], 10);
+        }
+      } catch {
+        incidentsCount = 0;
+      }
+
+      results.push({ title, incidentsCount });
+    }
+
+    return results;
+  }
+
+  public async openFile(filename: string, closeOtherEditors: boolean = false): Promise<void> {
+    const modifier = getOSInfo() === 'macOS' ? 'Meta' : 'Control';
+    await this.window.keyboard.press(`${modifier}+P`, { delay: 500 });
+    const input = this.window.getByPlaceholder(
+      'Search files by name (append : to go to line or @ to go to symbol)'
+    );
+    await input.waitFor({ state: 'visible', timeout: 5000 });
+    await input.fill(filename);
+    const fileLocator = await this.window.locator('a').filter({ hasText: filename }).first();
+    await expect(fileLocator).toBeVisible({ timeout: 10000 });
+    await fileLocator.click();
+    if (closeOtherEditors) {
+      await this.executeQuickCommand('View: Close Other Editors in Group');
+    }
+    const tabSelector = `.tab[role="tab"][data-resource-name="${filename}"]`;
+    await expect(this.window.locator(tabSelector)).toBeVisible({ timeout: 10000 });
   }
 }
