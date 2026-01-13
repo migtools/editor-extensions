@@ -1,5 +1,0 @@
-{
-  "import": "tsx",
-  "extension": ["ts"],
-  "spec": "src/**/__tests__/*.test.ts"
-}
