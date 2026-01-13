@@ -1,3 +1,4 @@
-* @konveyor/kai-ide-reviewers
-/tests @konveyor/kai-qe-reviewers
+# MTA VSCode Extension Build Repository
+# TODO: Update to internal migtools team when available
 
+* @konveyor/kai-ide-reviewers

@@ -1,0 +1,169 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "Override upstream ref (leave empty to use mta-build.yaml)"
+        required: false
+        type: string
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0
+
+jobs:
+  build:
+    name: Build MTA Extensions
+    runs-on: ubuntu-latest
+    outputs:
+      upstream_sha: ${{ steps.pull.outputs.upstream_sha }}
+      upstream_sha_short: ${{ steps.pull.outputs.upstream_sha_short }}
+      mta_version: ${{ steps.info.outputs.mta_version }}
+
+    steps:
+      - name: Checkout MTA build repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install MTA build dependencies
+        run: npm install
+
+      - name: Pull upstream and apply branding
+        id: pull
+        run: |
+          # Allow workflow input to override upstream ref
+          if [ -n "${{ inputs.upstream_ref }}" ]; then
+            npm run pull-upstream -- --ref=${{ inputs.upstream_ref }}
+          else
+            npm run pull-upstream
+          fi
+
+          # Capture upstream SHA for provenance
+          cd .upstream-workspace
+          SHA=$(git rev-parse HEAD)
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          echo "upstream_sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "upstream_sha_short=${SHA_SHORT}" >> $GITHUB_OUTPUT
+
+      - name: Show build configuration
+        run: |
+          echo "## Build Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### mta-build.yaml" >> $GITHUB_STEP_SUMMARY
+          echo '```yaml' >> $GITHUB_STEP_SUMMARY
+          cat mta-build.yaml >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Upstream SHA**: [\`${{ steps.pull.outputs.upstream_sha_short }}\`](https://github.com/konveyor/editor-extensions/commit/${{ steps.pull.outputs.upstream_sha }})" >> $GITHUB_STEP_SUMMARY
+
+      - name: Install upstream dependencies
+        working-directory: .upstream-workspace
+        run: npm ci
+
+      - name: Collect runtime assets
+        working-directory: .upstream-workspace
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Use release artifacts from konveyor/editor-extensions
+          # This downloads assets from the latest GitHub release
+          npm run collect-assets -- --use-release
+
+      - name: Build all workspaces
+        working-directory: .upstream-workspace
+        run: npm run build
+        env:
+          UPSTREAM_GIT_SHA: ${{ steps.pull.outputs.upstream_sha }}
+
+      - name: Show transformed package.json files
+        run: |
+          echo "## Transformed package.json files" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          for ext in core java javascript go; do
+            PKG=".upstream-workspace/vscode/${ext}/package.json"
+            if [ -f "$PKG" ]; then
+              echo "### vscode/${ext}/package.json" >> $GITHUB_STEP_SUMMARY
+              echo '```json' >> $GITHUB_STEP_SUMMARY
+              # Show key fields only
+              jq '{name, displayName, version, publisher, coreExtensionId, extensionDependencies}' "$PKG" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: Get build info
+        id: info
+        working-directory: .upstream-workspace
+        run: |
+          VERSION=$(jq -r '.version' vscode/core/package.json)
+          echo "mta_version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create distribution
+        working-directory: .upstream-workspace
+        run: npm run dist
+
+      - name: Package extensions
+        working-directory: .upstream-workspace
+        run: |
+          npm run package-core
+          npm run package-java
+          npm run package-javascript
+          # npm run package-go  # Enable when Go is ready
+
+      - name: Show dist file tree
+        run: |
+          echo "## Distribution Contents" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          find .upstream-workspace/dist -type f -name "*.vsix" | sort >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### VSIX Files" >> $GITHUB_STEP_SUMMARY
+          ls -lh .upstream-workspace/dist/*.vsix >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No VSIX files found" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload VSIX artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mta-vsix-${{ github.run_number }}
+          path: .upstream-workspace/dist/*.vsix
+          retention-days: 30
+
+      - name: Upload workspace for debugging
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-debug-${{ github.run_number }}
+          path: |
+            .upstream-workspace/vscode/*/package.json
+            .upstream-workspace/mta-build.yaml
+            .upstream-workspace/.mta-build-info.json
+          retention-days: 7
+
+  summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Summary
+        run: |
+          echo "## ✅ MTA Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| MTA Version | ${{ needs.build.outputs.mta_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Upstream SHA | [\`${{ needs.build.outputs.upstream_sha_short }}\`](https://github.com/konveyor/editor-extensions/commit/${{ needs.build.outputs.upstream_sha }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Run | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+
