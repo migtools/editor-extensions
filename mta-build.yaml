@@ -1,0 +1,69 @@
+# MTA Build Configuration
+# This file defines the upstream source and branding configuration for
+# building Migration Toolkit for Applications (MTA) branded extensions.
+
+# Upstream source repository
+upstream:
+  repository: konveyor/editor-extensions
+  ref: 95d519daeb09ac566c44713082281f3edc523bf6
+  semanticRef: main
+
+# MTA branding applied to all extensions
+branding:
+  version: "8.0.0"
+  publisher: redhat
+  author: Red Hat
+  repository: https://github.com/migtools/editor-extensions
+  bugs: https://github.com/migtools/editor-extensions/issues
+  homepage: https://developers.redhat.com/products/mta/overview
+
+  # Core extension ID used by language extensions to reference core
+  coreExtensionId: redhat.mta-vscode-extension
+
+# Per-extension configuration
+extensions:
+  core:
+    enabled: true
+    name: mta-vscode-extension
+    displayName: Migration Toolkit for Applications
+    description: >-
+      Migration toolkit for applications (MTA) - An enterprise migration
+      and modernization tool with optional generative AI features
+
+    # Runtime asset download configuration
+    # When enabled:
+    #   - Generates fallbackAssets config pointing to MTA download URL
+    #   - Removes kai from includedAssetPaths (downloaded at runtime instead)
+    # When disabled (default):
+    #   - Uses upstream bundled assets as-is
+    runtimeAssets:
+      enabled: false
+      baseUrl: https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.0.0/
+
+  java:
+    enabled: true
+    name: mta-java
+    displayName: MTA Java Support
+    description: Java language support for Migration Toolkit for Applications
+
+  javascript:
+    enabled: true
+    name: mta-javascript
+    displayName: MTA JavaScript Support
+    description: JavaScript language support for Migration Toolkit for Applications
+
+  go:
+    enabled: true
+    name: mta-go
+    displayName: MTA Go Support
+    description: Go language support for Migration Toolkit for Applications
+
+# Asset mappings (source paths relative to this repo, targets relative to upstream workspace)
+assets:
+  - from: assets/icons/sidebar.png
+    to: vscode/core/resources/icon.png
+  - from: assets/icons/avatar.svg
+    to: webview-ui/public/avatarIcons/avatar.svg
+  - from: assets/README.md
+    to: vscode/core/README.md
+
