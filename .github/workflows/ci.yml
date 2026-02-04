@@ -398,42 +398,11 @@ jobs:
 
   release:
     name: Create Release
-    needs: [package, e2e-test]
-    runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
-
-    steps:
-      - name: Download VSIX artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: mta-vsix-artifact-${{ github.run_number }}
-          path: ./artifacts
-
-      - name: Create GitHub release
-        run: |
-          VSIX_FILE=$(find ./artifacts -name "*.vsix" | head -1)
-          RELEASE_NAME="${{ github.ref_name }}"
-
-          gh release create "${{ github.ref_name }}" \
-            --title "MTA Extension $RELEASE_NAME" \
-            --notes "Migration Toolkit for Applications extension release $RELEASE_NAME
-
-          ## Installation
-          Download the .vsix file and install using 'Extensions: Install from VSIX...' in VS Code.
-
-          ## Changes
-          See the full changelog in the repository." \
-            "$VSIX_FILE"
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      # TODO: Add marketplace publishing when ready
-      # - name: Publish to VS Code Marketplace
-      #   run: npx vsce publish --packagePath "$VSIX_FILE"
-      #   env:
-      #     VSCE_PAT: ${{ secrets.VSCE_PAT }}
-
-      # - name: Publish to Open VSX
-      #   run: npx ovsx publish "$VSIX_FILE"
-      #   env:
-      #     OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    needs: e2e-test
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    uses: ./.github/workflows/release.yml
+    with:
+      tag_name: ${{ github.ref_name }}
+      prerelease: ${{ contains(github.ref_name, '-') }}
+      vsix_artifact_name: "vsix-artifact"
+    secrets: inherit

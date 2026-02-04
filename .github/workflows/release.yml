@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        description: "Tag name for the release"
+        required: true
+        type: string
+      prerelease:
+        description: "Is this a pre-release?"
+        required: true
+        type: boolean
+      vsix_artifact_name:
+        description: "Name of the VSIX artifact to download"
+        required: false
+        type: string
+        default: "vsix-artifact"
+      workflow_run_id:
+        description: "Workflow run ID to download artifacts from"
+        required: false
+        type: string
+
+env:
+  HUSKY: 0
+
+jobs:
+  generate_changelog:
+    name: Generate Changelog
+    uses: konveyor/release-tools/.github/workflows/generate-changelog.yml@main
+    with:
+      version: ${{ inputs.tag_name }}
+      prev_version: $(gh api repos/${{ github.repository }}/releases/latest | jq -r '.tag_name')
+      repository: ${{ github.repository }}
+      ref: ${{ github.sha }}
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    name: Final Release
+    runs-on: ubuntu-latest
+    needs: generate_changelog
+    steps:
+      - name: Add release details to the step summary
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Release Information
+          Tag: __${{ inputs.tag_name }}__
+          Pre-Release: __${{ inputs.prerelease }}__
+          VSIX Artifact: __${{ inputs.vsix_artifact_name }}__
+          Workflow Run ID: __${{ inputs.workflow_run_id || github.run_id }}__
+          EOF
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Changelog Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: changelog-artifact
+          path: ./artifacts
+
+      - name: Download VSIX Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.vsix_artifact_name }}
+          path: ./artifacts
+
+      - name: Verify Downloaded Artifacts
+        run: ls -R ./artifacts/
+
+      - name: Find and set VSIX filename
+        id: vsix_info
+        run: |
+          VSIX_FILE=$(find ./artifacts -name "*.vsix" -type f | head -1)
+          VSIX_NAME=$(basename "$VSIX_FILE")
+          echo "vsix_path=$VSIX_FILE" >> "$GITHUB_OUTPUT"
+          echo "vsix_name=$VSIX_NAME" >> "$GITHUB_OUTPUT"
+          echo "Found VSIX: $VSIX_NAME at $VSIX_FILE"
+
+      - name: Set up Node.js for publishing
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Publish to VS Code Marketplace
+        if: ${{ inputs.prerelease == false }}
+        run: |
+          echo "Publishing ${{ steps.vsix_info.outputs.vsix_path }}"
+          if [ -f "./artifacts/release.md" ]; then
+            echo "Publishing with changelog"
+            npx @vscode/vsce publish --packagePath "${{ steps.vsix_info.outputs.vsix_path }}" --changelog-path "./artifacts/release.md"
+          else
+            echo "Publishing without changelog (file not found)"
+            npx @vscode/vsce publish --packagePath "${{ steps.vsix_info.outputs.vsix_path }}"
+          fi
+        env:
+          VSCE_PAT: ${{ secrets.VSCODE_MARKETPLACE_TOKEN }}
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ inputs.tag_name }}
+          commit: ${{ github.sha }}
+          bodyFile: ./artifacts/release.md
+          artifacts: |
+            ${{ steps.vsix_info.outputs.vsix_path }}
+          prerelease: ${{ inputs.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
