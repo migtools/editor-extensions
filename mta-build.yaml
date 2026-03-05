@@ -1,7 +1,7 @@
 upstream:
   repository: konveyor/editor-extensions
   # Will be updated to specific SHA from release-0.2 branch
-  ref: 67dfd7aad4ce5a0015a5c564bf91fa518c00e652
+  ref: 24b929790f518915ff895871252f0429e3aa3a04
   semanticRef: release-0.2
 
 # Maybe useful later
