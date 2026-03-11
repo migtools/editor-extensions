@@ -17,6 +17,14 @@ export const shortName = "MTA";
 export const repositoryUrl = "https://github.com/migtools/editor-extensions";
 export const bugsUrl = "https://github.com/migtools/editor-extensions/issues";
 export const homepageUrl = "https://developers.redhat.com/products/mta/overview";
+// export const fallbackAssetsUrl = "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.0.1/"
+export const fallbackAssetsUrl = "https://download.devel.redhat.com/devel/candidates/middleware/migrationtoolkit/MTA-8.1.0.CR2/"
+
+// ─── TEMPORARY PRE-RELEASE ASSET HANDLING ───────────────────────────────────
+// TODO: REMOVE THIS SECTION WHEN MTA 8.1.0 GOES GA AND ASSETS ARE PUBLIC
+// Currently using CR2 (candidate release) which requires VPN access
+const isPreRelease = fallbackAssetsUrl.includes('candidates') || fallbackAssetsUrl.includes('CR');
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Extension name mapping: upstream → downstream
 const NAME_MAP = {
@@ -207,10 +215,26 @@ function brandCoreExtension(pkg) {
     }));
   }
 
-  // Remove kai from includedAssetPaths (runtime download via fallback)
-  if (pkg.includedAssetPaths?.kai !== undefined) {
-    delete pkg.includedAssetPaths.kai;
-    console.log("  ✅ Removed kai binary assets from package (runtime download enabled)");
+  // Asset management strategy for production vs pre-release builds
+  if (isPreRelease && pkg.includedAssetPaths?.kai !== undefined) {
+    // Pre-release builds: Keep assets bundled to avoid VPN requirements
+    console.log("  📦 Keeping kai binary assets bundled (pre-release build)");
+    console.log("  🚨 Pre-release mode: Assets bundled to avoid VPN requirement at runtime");
+  } else if (!isPreRelease && pkg.includedAssetPaths?.kai !== undefined) {
+    // Production builds: Fail hard if dev assets are still bundled
+    console.error("  ❌ PRODUCTION BUILD ERROR: Dev assets still bundled!");
+    console.error("  ❌ Found bundled kai assets in production build");
+    console.error("  ❌ This would ship dev/internal assets to end users");
+    console.error("  💡 Solution: Remove kai assets from upstream package.json");
+    console.error("     or verify fallbackAssetsUrl points to public release");
+    process.exit(1);
+  } else if (!isPreRelease) {
+    // Production builds: Assets removed, runtime download enabled
+    console.log("  ✅ No bundled assets (runtime download from public servers)");
+  } else {
+    // Pre-release but no assets found
+    console.log("  ⚠️  Pre-release mode but no kai assets found");
+    console.log("  ⚠️  Extension may fail at runtime without bundled or downloadable assets");
   }
 
   return pkg;
@@ -333,8 +357,7 @@ function transformSourceCode() {
 async function generateFallbackAssets(pkg) {
   console.log("  🔧 Generating fallback assets configuration...");
 
-  const FALLBACK_ASSETS_URL =
-    "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.0.0/";
+  const FALLBACK_ASSETS_URL = fallbackAssetsUrl;
 
   const PLATFORM_MAPPING = {
     "linux-x64": "linux-amd64",
@@ -357,18 +380,24 @@ async function generateFallbackAssets(pkg) {
   try {
     console.log(`    Fetching from: ${FALLBACK_ASSETS_URL}`);
 
-    // Verify sha256sum.txt exists
-    console.log("    🔍 Verifying sha256sum.txt exists...");
+    // Verify SHA256SUM exists
+    console.log("    🔍 Verifying SHA256SUM exists...");
     try {
-      const sha256Response = await fetchText(`${FALLBACK_ASSETS_URL}sha256sum.txt`);
+      const sha256Response = await fetchText(`${FALLBACK_ASSETS_URL}SHA256SUM`);
       if (!sha256Response || sha256Response.trim().length === 0) {
-        throw new Error("sha256sum.txt is empty");
+        throw new Error("SHA256SUM is empty");
       }
-      console.log("      ✅ sha256sum.txt found and not empty");
+      console.log("      ✅ SHA256SUM found and not empty");
     } catch (sha256Error) {
-      console.error(`    ❌ Failed to fetch sha256sum.txt: ${sha256Error.message}`);
+      if (isPreRelease) {
+        console.warn(`    ⚠️  Failed to fetch SHA256SUM: ${sha256Error.message}`);
+        console.warn("    ⚠️  Pre-release build: skipping fallback assets (server unreachable)");
+        console.warn("    📦 Assets are bundled, so runtime downloads are not required");
+        return pkg;
+      }
+      console.error(`    ❌ Failed to fetch SHA256SUM: ${sha256Error.message}`);
       console.error(
-        "    ❌ Build failed: sha256sum.txt is required for secure asset downloads",
+        "    ❌ Build failed: SHA256SUM is required for secure asset downloads",
       );
       process.exit(1);
     }
@@ -430,7 +459,7 @@ async function generateFallbackAssets(pkg) {
 
     pkg.fallbackAssets = {
       baseUrl: FALLBACK_ASSETS_URL,
-      sha256sumFile: "sha256sum.txt",
+      sha256sumFile: "SHA256SUM",
       assets,
     };
 
@@ -438,6 +467,12 @@ async function generateFallbackAssets(pkg) {
       `  ✅ Generated fallback assets for ${Object.keys(assets).length} platforms`,
     );
   } catch (error) {
+    if (isPreRelease) {
+      console.warn(`  ⚠️  Failed to generate fallback assets: ${error.message}`);
+      console.warn("  ⚠️  Pre-release build: skipping fallback assets (server unreachable)");
+      console.warn("  📦 Assets are bundled, so runtime downloads are not required");
+      return pkg;
+    }
     console.error(`  ❌ Failed to generate fallback assets: ${error.message}`);
     console.error(
       "  ❌ Build failed: fallback assets are required for extension functionality",
@@ -497,6 +532,46 @@ const isDirectExecution =
 
 if (isDirectExecution) {
   console.log("🔄 Running MTA prebuild for multi-extension architecture...\n");
+
+  // Show loud warning for pre-release builds
+  if (isPreRelease) {
+    console.log("🚨🚨🚨 PRE-RELEASE BUILD DETECTED 🚨🚨🚨");
+    console.log("   Using candidate release assets that require VPN access:");
+    console.log(`   ${fallbackAssetsUrl}`);
+    console.log("   Assets will be BUNDLED to avoid runtime download failures");
+    console.log("   📝 TODO: Update to GA URL when MTA 8.1.0 is officially released:");
+    console.log("   https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.1.0/");
+    console.log("🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨\n");
+  }
+
+  // 0. Set version across all workspaces BEFORE webpack runs
+  //    This ensures webpack's DefinePlugin bakes the correct MTA version
+  //    into EXTENSION_VERSION constants at compile time.
+  console.log(`📝 Setting version ${extensionVersion} across all workspaces...`);
+  const workspacePaths = [
+    "package.json",
+    "extra-types/package.json",
+    "shared/package.json",
+    "webview-ui/package.json",
+    "agentic/package.json",
+    "vscode/core/package.json",
+    "vscode/java/package.json",
+    "vscode/javascript/package.json",
+    "vscode/go/package.json",
+    "vscode/csharp/package.json",
+    "vscode/konveyor/package.json",
+  ];
+
+  for (const ws of workspacePaths) {
+    const fullPath = path.join(__dirname, "..", ws);
+    if (fs.existsSync(fullPath)) {
+      const pkg = JSON.parse(fs.readFileSync(fullPath, "utf8"));
+      pkg.version = extensionVersion;
+      fs.writeFileSync(fullPath, JSON.stringify(pkg, null, 2));
+      console.log(`  ✅ ${ws}`);
+    }
+  }
+  console.log("");
 
   // 1. Transform core extension
   console.log("📦 Branding core extension (vscode/core)...");

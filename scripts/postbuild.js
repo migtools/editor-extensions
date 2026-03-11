@@ -45,16 +45,13 @@ function check(condition, errorMsg) {
   return true;
 }
 
-// ─── Version Updates ────────────────────────────────────────────────────────
+// ─── Version Verification ────────────────────────────────────────────────────
+// Version is set by prebuild.js (before webpack) so EXTENSION_VERSION constants
+// are baked correctly at compile time. Here we just verify it stuck.
 
-console.log(`📝 Updating all package.json versions to ${extensionVersion}...`);
+console.log(`📝 Verifying version ${extensionVersion} across workspaces...`);
 
 const workspaces = [
-  "package.json",
-  "extra-types/package.json",
-  "shared/package.json",
-  "webview-ui/package.json",
-  "agentic/package.json",
   "vscode/core/package.json",
   "vscode/java/package.json",
   "vscode/javascript/package.json",
@@ -67,13 +64,14 @@ for (const ws of workspaces) {
   const fullPath = path.join(__dirname, "..", ws);
   if (fs.existsSync(fullPath)) {
     const pkg = JSON.parse(fs.readFileSync(fullPath, "utf8"));
-    pkg.version = extensionVersion;
-    fs.writeFileSync(fullPath, JSON.stringify(pkg, null, 2));
-    console.log(`  ✅ Updated ${ws}`);
+    check(
+      pkg.version === extensionVersion,
+      `${ws} version: expected "${extensionVersion}", got "${pkg.version}"`,
+    );
   }
 }
 
-console.log("📝 Version updates complete!\n");
+console.log("📝 Version verification complete!\n");
 
 // ─── Core Extension Verification ────────────────────────────────────────────
 
@@ -177,8 +175,8 @@ if (corePkg.fallbackAssets) {
     warnings.push(`Only ${assetCount} platforms in fallback assets (expected 6)`);
   }
   check(
-    corePkg.fallbackAssets.sha256sumFile === "sha256sum.txt",
-    `sha256sumFile: expected "sha256sum.txt", got "${corePkg.fallbackAssets.sha256sumFile}"`,
+    corePkg.fallbackAssets.sha256sumFile === "SHA256SUM",
+    `sha256sumFile: expected "SHA256SUM", got "${corePkg.fallbackAssets.sha256sumFile}"`,
   );
 } else {
   warnings.push("No fallback assets configuration found on core extension");

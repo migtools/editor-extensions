@@ -222,6 +222,52 @@ jobs:
         run: |
           npm run collect-assets -- --use-release
 
+      - name: Verify runtime assets downloaded
+        working-directory: ./.upstream-workspace
+        run: |
+          echo "🔍 Verifying required runtime assets..."
+          MISSING=0
+
+          # Language extension provider binaries (must be bundled — no runtime fallback)
+          for provider in java-external-provider generic-external-provider golang-dependency-provider c-sharp-analyzer-provider; do
+            DIR="downloaded_assets/${provider}"
+            if [[ ! -d "$DIR" ]] || [[ -z "$(ls -A "$DIR" 2>/dev/null)" ]]; then
+              echo "❌ Missing required provider binary: ${provider}"
+              MISSING=$((MISSING + 1))
+            else
+              COUNT=$(find "$DIR" -type f | wc -l)
+              echo "✅ ${provider}: ${COUNT} files"
+            fi
+          done
+
+          # Seed assets
+          for asset in rulesets jdtls-bundles opensource-labels-file; do
+            DIR="downloaded_assets/${asset}"
+            if [[ ! -d "$DIR" ]] || [[ -z "$(ls -A "$DIR" 2>/dev/null)" ]]; then
+              echo "⚠️  Missing seed asset: ${asset}"
+            else
+              echo "✅ ${asset}: present"
+            fi
+          done
+
+          # kai binary is optional (core uses fallbackAssets for runtime download)
+          KAI_DIR="downloaded_assets/kai"
+          if [[ -d "$KAI_DIR" ]] && [[ -n "$(ls -A "$KAI_DIR" 2>/dev/null)" ]]; then
+            echo "✅ kai: present (will be bundled)"
+          else
+            echo "ℹ️  kai: not bundled (core extension uses fallbackAssets for runtime download)"
+          fi
+
+          if [[ $MISSING -gt 0 ]]; then
+            echo ""
+            echo "❌ ${MISSING} required provider binaries are missing."
+            echo "❌ Language extensions will not function without these binaries."
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ All required runtime assets verified"
+
       - name: Set version for build
         working-directory: ./.upstream-workspace
         run: |
