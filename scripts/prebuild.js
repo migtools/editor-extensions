@@ -271,6 +271,7 @@ function brandLanguageExtension(pkg, lang) {
   Object.assign(pkg, {
     name: newName,
     displayName: DISPLAY_NAME_MAP[newName],
+    icon: "resources/icon.png",
     ...sharedMeta,
   });
 
