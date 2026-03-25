@@ -17,13 +17,16 @@ export const shortName = "MTA";
 export const repositoryUrl = "https://github.com/migtools/editor-extensions";
 export const bugsUrl = "https://github.com/migtools/editor-extensions/issues";
 export const homepageUrl = "https://developers.redhat.com/products/mta/overview";
-// export const fallbackAssetsUrl = "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.0.1/"
-export const fallbackAssetsUrl = "https://download.devel.redhat.com/devel/candidates/middleware/migrationtoolkit/MTA-8.1.0.CR2/"
+export const fallbackAssetsUrl = "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.1.0/"
 
-// ─── TEMPORARY PRE-RELEASE ASSET HANDLING ───────────────────────────────────
-// TODO: REMOVE THIS SECTION WHEN MTA 8.1.0 GOES GA AND ASSETS ARE PUBLIC
-// Currently using CR2 (candidate release) which requires VPN access
-const isPreRelease = fallbackAssetsUrl.includes('candidates') || fallbackAssetsUrl.includes('CR');
+// ─── PRE-RELEASE ASSET HANDLING (uncomment for next pre-release cycle) ──────
+// To use candidate/internal assets during pre-release, uncomment the following
+// and update the fallbackAssetsUrl above to point to the candidate URL:
+//   export const fallbackAssetsUrl = "https://download.devel.redhat.com/devel/candidates/middleware/migrationtoolkit/MTA-X.Y.Z.CRn/"
+// const isPreRelease = fallbackAssetsUrl.includes('candidates') || fallbackAssetsUrl.includes('CR');
+//
+// NOTE: Candidate servers use "SHA256SUM", GA public servers use "sha256sum.txt".
+// When switching to pre-release, also update sha256sumFile references below.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Extension name mapping: upstream → downstream
@@ -215,26 +218,10 @@ function brandCoreExtension(pkg) {
     }));
   }
 
-  // Asset management strategy for production vs pre-release builds
-  if (isPreRelease && pkg.includedAssetPaths?.kai !== undefined) {
-    // Pre-release builds: Keep assets bundled to avoid VPN requirements
-    console.log("  📦 Keeping kai binary assets bundled (pre-release build)");
-    console.log("  🚨 Pre-release mode: Assets bundled to avoid VPN requirement at runtime");
-  } else if (!isPreRelease && pkg.includedAssetPaths?.kai !== undefined) {
-    // Production builds: Fail hard if dev assets are still bundled
-    console.error("  ❌ PRODUCTION BUILD ERROR: Dev assets still bundled!");
-    console.error("  ❌ Found bundled kai assets in production build");
-    console.error("  ❌ This would ship dev/internal assets to end users");
-    console.error("  💡 Solution: Remove kai assets from upstream package.json");
-    console.error("     or verify fallbackAssetsUrl points to public release");
-    process.exit(1);
-  } else if (!isPreRelease) {
-    // Production builds: Assets removed, runtime download enabled
-    console.log("  ✅ No bundled assets (runtime download from public servers)");
-  } else {
-    // Pre-release but no assets found
-    console.log("  ⚠️  Pre-release mode but no kai assets found");
-    console.log("  ⚠️  Extension may fail at runtime without bundled or downloadable assets");
+  // Remove kai binary assets from package (they'll be downloaded at runtime via fallbackAssets)
+  if (pkg.includedAssetPaths?.kai) {
+    delete pkg.includedAssetPaths.kai;
+    console.log("  ✅ Removed kai binary assets from package (runtime download enabled)");
   }
 
   return pkg;
@@ -399,32 +386,27 @@ async function generateFallbackAssets(pkg) {
   try {
     console.log(`    Fetching from: ${FALLBACK_ASSETS_URL}`);
 
-    // Verify SHA256SUM exists
-    console.log("    🔍 Verifying SHA256SUM exists...");
+    // Verify sha256sum.txt exists
+    console.log("    🔍 Verifying sha256sum.txt exists...");
     try {
-      const sha256Response = await fetchText(`${FALLBACK_ASSETS_URL}SHA256SUM`);
+      const sha256Response = await fetchText(`${FALLBACK_ASSETS_URL}sha256sum.txt`);
       if (!sha256Response || sha256Response.trim().length === 0) {
-        throw new Error("SHA256SUM is empty");
+        throw new Error("sha256sum.txt is empty");
       }
-      console.log("      ✅ SHA256SUM found and not empty");
+      console.log("      ✅ sha256sum.txt found and not empty");
     } catch (sha256Error) {
-      if (isPreRelease) {
-        console.warn(`    ⚠️  Failed to fetch SHA256SUM: ${sha256Error.message}`);
-        console.warn("    ⚠️  Server unreachable (VPN required) - using static fallback config");
-
-        const assets = generateStaticFallbackAssets();
-        pkg.fallbackAssets = {
-          baseUrl: FALLBACK_ASSETS_URL,
-          sha256sumFile: "SHA256SUM",
-          assets,
-        };
-        console.log(`  ✅ Generated static fallback assets for ${Object.keys(assets).length} platforms`);
-        console.log("  📦 Extension will attempt to download assets at runtime");
-        return pkg;
-      }
-      console.error(`    ❌ Failed to fetch SHA256SUM: ${sha256Error.message}`);
+      // Pre-release: uncomment to allow builds when VPN-only server is unreachable
+      // if (isPreRelease) {
+      //   console.warn(`    ⚠️  Failed to fetch checksum: ${sha256Error.message}`);
+      //   console.warn("    ⚠️  Server unreachable (VPN required) - using static fallback config");
+      //   const assets = generateStaticFallbackAssets();
+      //   pkg.fallbackAssets = { baseUrl: FALLBACK_ASSETS_URL, sha256sumFile: "SHA256SUM", assets };
+      //   console.log(`  ✅ Generated static fallback assets for ${Object.keys(assets).length} platforms`);
+      //   return pkg;
+      // }
+      console.error(`    ❌ Failed to fetch sha256sum.txt: ${sha256Error.message}`);
       console.error(
-        "    ❌ Build failed: SHA256SUM is required for secure asset downloads",
+        "    ❌ Build failed: sha256sum.txt is required for secure asset downloads",
       );
       process.exit(1);
     }
@@ -486,7 +468,7 @@ async function generateFallbackAssets(pkg) {
 
     pkg.fallbackAssets = {
       baseUrl: FALLBACK_ASSETS_URL,
-      sha256sumFile: "SHA256SUM",
+      sha256sumFile: "sha256sum.txt",
       assets,
     };
 
@@ -494,20 +476,15 @@ async function generateFallbackAssets(pkg) {
       `  ✅ Generated fallback assets for ${Object.keys(assets).length} platforms`,
     );
   } catch (error) {
-    if (isPreRelease) {
-      console.warn(`  ⚠️  Failed to generate fallback assets: ${error.message}`);
-      console.warn("  ⚠️  Server unreachable (VPN required) - using static fallback config");
-
-      const assets = generateStaticFallbackAssets();
-      pkg.fallbackAssets = {
-        baseUrl: FALLBACK_ASSETS_URL,
-        sha256sumFile: "SHA256SUM",
-        assets,
-      };
-      console.log(`  ✅ Generated static fallback assets for ${Object.keys(assets).length} platforms`);
-      console.log("  📦 Extension will attempt to download assets at runtime");
-      return pkg;
-    }
+    // Pre-release: uncomment to fall back to static config when server is unreachable
+    // if (isPreRelease) {
+    //   console.warn(`  ⚠️  Failed to generate fallback assets: ${error.message}`);
+    //   console.warn("  ⚠️  Server unreachable (VPN required) - using static fallback config");
+    //   const assets = generateStaticFallbackAssets();
+    //   pkg.fallbackAssets = { baseUrl: FALLBACK_ASSETS_URL, sha256sumFile: "SHA256SUM", assets };
+    //   console.log(`  ✅ Generated static fallback assets for ${Object.keys(assets).length} platforms`);
+    //   return pkg;
+    // }
     console.error(`  ❌ Failed to generate fallback assets: ${error.message}`);
     console.error(
       "  ❌ Build failed: fallback assets are required for extension functionality",
@@ -578,16 +555,14 @@ const isDirectExecution =
 if (isDirectExecution) {
   console.log("🔄 Running MTA prebuild for multi-extension architecture...\n");
 
-  // Show loud warning for pre-release builds
-  if (isPreRelease) {
-    console.log("🚨🚨🚨 PRE-RELEASE BUILD DETECTED 🚨🚨🚨");
-    console.log("   Using candidate release assets that require VPN access:");
-    console.log(`   ${fallbackAssetsUrl}`);
-    console.log("   Assets will be BUNDLED to avoid runtime download failures");
-    console.log("   📝 TODO: Update to GA URL when MTA 8.1.0 is officially released:");
-    console.log("   https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.1.0/");
-    console.log("🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨\n");
-  }
+  // Pre-release: uncomment to show warning banner during candidate builds
+  // if (isPreRelease) {
+  //   console.log("🚨🚨🚨 PRE-RELEASE BUILD DETECTED 🚨🚨🚨");
+  //   console.log("   Using candidate release assets that require VPN access:");
+  //   console.log(`   ${fallbackAssetsUrl}`);
+  //   console.log("   Assets will be BUNDLED to avoid runtime download failures");
+  //   console.log("🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨\n");
+  // }
 
   // 0. Set version across all workspaces BEFORE webpack runs
   //    This ensures webpack's DefinePlugin bakes the correct MTA version

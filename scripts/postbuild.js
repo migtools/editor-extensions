@@ -175,8 +175,8 @@ if (corePkg.fallbackAssets) {
     warnings.push(`Only ${assetCount} platforms in fallback assets (expected 6)`);
   }
   check(
-    corePkg.fallbackAssets.sha256sumFile === "SHA256SUM",
-    `sha256sumFile: expected "SHA256SUM", got "${corePkg.fallbackAssets.sha256sumFile}"`,
+    corePkg.fallbackAssets.sha256sumFile === "sha256sum.txt",
+    `sha256sumFile: expected "sha256sum.txt", got "${corePkg.fallbackAssets.sha256sumFile}"`,
   );
 } else {
   warnings.push("No fallback assets configuration found on core extension");
