@@ -102,9 +102,9 @@ jobs:
           while IFS= read -r VSIX_FILE; do
             echo "Publishing $(basename "$VSIX_FILE")..."
             if [ -f "./artifacts/release.md" ]; then
-              npx @vscode/vsce publish --packagePath "$VSIX_FILE" --changelog-path "./artifacts/release.md"
+              npx @vscode/vsce publish --skip-duplicate --packagePath "$VSIX_FILE" --changelog-path "./artifacts/release.md"
             else
-              npx @vscode/vsce publish --packagePath "$VSIX_FILE"
+              npx @vscode/vsce publish --skip-duplicate --packagePath "$VSIX_FILE"
             fi
             echo "✅ Published $(basename "$VSIX_FILE")"
           done <<< "${{ steps.vsix_info.outputs.vsix_files }}"
@@ -117,7 +117,7 @@ jobs:
           echo "Publishing all extensions to Open VSX Registry..."
           while IFS= read -r VSIX_FILE; do
             echo "Publishing $(basename "$VSIX_FILE")..."
-            npx ovsx publish "$VSIX_FILE" --pat "$OVSX_PAT"
+            npx ovsx publish --skip-duplicate "$VSIX_FILE" --pat "$OVSX_PAT"
             echo "✅ Published $(basename "$VSIX_FILE")"
           done <<< "${{ steps.vsix_info.outputs.vsix_files }}"
         env:
