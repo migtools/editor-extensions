@@ -539,6 +539,7 @@ function copyBrandingAssets() {
     "vscode/javascript/resources/icon.png",
     "vscode/go/resources/icon.png",
     "vscode/csharp/resources/icon.png",
+    "vscode/konveyor/resources/icon.png",
   ];
 
   if (fs.existsSync(iconSource)) {
