@@ -97,6 +97,27 @@ function replaceBrandWord(str) {
   return str.replace(/\bKonveyor\b/g, shortName);
 }
 
+/** Replace brand references in viewsWelcome contents (markdown with embedded command URIs) */
+function replaceWelcomeContents(str) {
+  let result = str;
+  // Replace publisher-qualified extension IDs (e.g., konveyor.konveyor → redhat.mta-vscode-extension)
+  for (const [from, to] of Object.entries(NAME_MAP)) {
+    result = result.replaceAll(`konveyor.${from}`, `${publisher}.${to}`);
+  }
+  // Replace URL-encoded publisher search queries
+  result = result.replaceAll("%40publisher%3Akonveyor", `%40publisher%3A${publisher}`);
+  // Replace hyphenated name prefixes (e.g., konveyor-core. → mta-core.)
+  // Skip plain "konveyor" to avoid breaking URLs like konveyor.io
+  for (const [from, to] of Object.entries(NAME_MAP)) {
+    if (from.includes("-")) {
+      result = result.replaceAll(`${from}.`, `${to}.`);
+    }
+  }
+  // Replace brand word (Konveyor → MTA)
+  result = replaceBrandWord(result);
+  return result;
+}
+
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -215,6 +236,16 @@ function brandCoreExtension(pkg) {
       ...submenu,
       id: replaceSubmenuId(submenu.id),
       label: `${shortName} Actions`,
+    }));
+  }
+
+  // Transform viewsWelcome
+  if (pkg.contributes?.viewsWelcome) {
+    pkg.contributes.viewsWelcome = pkg.contributes.viewsWelcome.map((entry) => ({
+      ...entry,
+      view: replacePrefix(entry.view),
+      when: entry.when ? replaceWhenClause(entry.when) : entry.when,
+      contents: entry.contents ? replaceWelcomeContents(entry.contents) : entry.contents,
     }));
   }
 
