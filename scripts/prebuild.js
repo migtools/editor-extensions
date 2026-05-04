@@ -566,12 +566,18 @@ function copyBrandingAssets() {
     console.warn("  ⚠️  No avatar found at: assets/branding/avatar-icons/avatar.svg");
   }
 
-  // 3. Branded README → core extension
+  // 3. Branded README → core extension and extension pack
   const readmeSource = path.join(__dirname, "..", "assets/README.md");
-  const readmeTarget = path.join(__dirname, "..", "vscode/core/README.md");
+  const readmeTargets = [
+    { path: "vscode/core/README.md", label: "core extension" },
+    { path: "vscode/konveyor/README.md", label: "extension pack" },
+  ];
   if (fs.existsSync(readmeSource)) {
-    fs.copyFileSync(readmeSource, readmeTarget);
-    console.log("  ✅ Branded README copied to core extension");
+    for (const target of readmeTargets) {
+      const readmeTarget = path.join(__dirname, "..", target.path);
+      fs.copyFileSync(readmeSource, readmeTarget);
+      console.log(`  ✅ Branded README copied to ${target.label}`);
+    }
   } else {
     console.warn("  ⚠️  No branded README found at: assets/README.md");
   }

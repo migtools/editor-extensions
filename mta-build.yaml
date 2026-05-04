@@ -1,4 +1,4 @@
 upstream:
   repository: konveyor/editor-extensions
-  ref: f52d0e73369777e3793fc201d66c43514dcde398
+  ref: de70394013c6cd86305622bee2cc2bdb634b3775
   semanticRef: release-0.4
