@@ -229,7 +229,8 @@ jobs:
           MISSING=0
 
           # Language extension provider binaries (must be bundled — no runtime fallback)
-          for provider in java-external-provider generic-external-provider golang-dependency-provider c-sharp-analyzer-provider; do
+          # release-0.6 refactored provider names; fallbacks exist for older releases
+          for provider in java-external-provider nodejs-external-provider go-external-provider c-sharp-analyzer-provider; do
             DIR="downloaded_assets/${provider}"
             if [[ ! -d "$DIR" ]] || [[ -z "$(ls -A "$DIR" 2>/dev/null)" ]]; then
               echo "❌ Missing required provider binary: ${provider}"
@@ -241,7 +242,7 @@ jobs:
           done
 
           # Seed assets
-          for asset in rulesets jdtls-bundles opensource-labels-file; do
+          for asset in rulesets opensource-labels-file; do
             DIR="downloaded_assets/${asset}"
             if [[ ! -d "$DIR" ]] || [[ -z "$(ls -A "$DIR" 2>/dev/null)" ]]; then
               echo "⚠️  Missing seed asset: ${asset}"
@@ -249,6 +250,24 @@ jobs:
               echo "✅ ${asset}: present"
             fi
           done
+
+          # Per-language rulesets (release-0.6+)
+          for lang_dir in rulesets-java rulesets-nodejs rulesets-dotnet rulesets-go; do
+            DIR="downloaded_assets/${lang_dir}"
+            if [[ -d "$DIR" ]] && [[ -n "$(ls -A "$DIR" 2>/dev/null)" ]]; then
+              echo "✅ ${lang_dir}: present"
+            else
+              echo "ℹ️  ${lang_dir}: not found (may be bundled in release assets)"
+            fi
+          done
+
+          # Optional: konveyor-analyzer-dep (new in release-0.6)
+          KAD_DIR="downloaded_assets/konveyor-analyzer-dep"
+          if [[ -d "$KAD_DIR" ]] && [[ -n "$(ls -A "$KAD_DIR" 2>/dev/null)" ]]; then
+            echo "✅ konveyor-analyzer-dep: present"
+          else
+            echo "ℹ️  konveyor-analyzer-dep: not bundled (gracefully skipped by collect-assets)"
+          fi
 
           # kai binary is optional (core uses fallbackAssets for runtime download)
           KAI_DIR="downloaded_assets/kai"
