@@ -39,7 +39,7 @@ const upstreamRef = refOverride || config.upstream.ref;
 const semanticRef = config.upstream.semanticRef || upstreamRef;
 const upstreamUrl = `https://github.com/${upstreamRepo}.git`;
 
-console.log("🔧 MTA Release-0.4 Development Setup");
+console.log("🔧 MTA Release-0.6 Development Setup");
 console.log(`📦 Upstream: ${upstreamRepo}`);
 console.log(
   `🏷️  Ref: ${upstreamRef.substring(0, 7)}... (${semanticRef})`
@@ -178,7 +178,7 @@ const buildInfo = {
     sha: upstreamSha,
   },
   preparedAt: new Date().toISOString(),
-  architecture: "release-0.4-multi-extension",
+  architecture: "release-0.6-multi-extension",
 };
 fs.writeFileSync(buildInfoPath, JSON.stringify(buildInfo, null, 2));
 

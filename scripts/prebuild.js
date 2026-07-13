@@ -10,13 +10,14 @@ const __dirname = path.dirname(__filename);
 
 // ─── MTA Branding Constants ─────────────────────────────────────────────────
 
-export const extensionVersion = "8.1.0";
+export const extensionVersion = "8.2.0";
 export const publisher = "redhat";
 export const author = "Red Hat";
 export const shortName = "MTA";
 export const repositoryUrl = "https://github.com/migtools/editor-extensions";
 export const bugsUrl = "https://github.com/migtools/editor-extensions/issues";
 export const homepageUrl = "https://developers.redhat.com/products/mta/overview";
+// TODO: Switch to 8.2.0 when assets are published
 export const fallbackAssetsUrl = "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.1.0/"
 
 // ─── PRE-RELEASE ASSET HANDLING (uncomment for next pre-release cycle) ──────
@@ -403,7 +404,7 @@ async function generateFallbackAssets(pkg) {
     // Extract base version from URL (e.g., "8.1.0" from "MTA-8.1.0.CR2")
     // The analyzer binaries use only the base version, not the release suffix
     const versionMatch = FALLBACK_ASSETS_URL.match(/MTA-(\d+\.\d+\.\d+)/);
-    const version = versionMatch ? versionMatch[1] : "8.1.0";
+    const version = versionMatch ? versionMatch[1] : extensionVersion;
 
     const assets = {};
     for (const [vscodePlatform, mtaPlatform] of Object.entries(PLATFORM_MAPPING)) {
@@ -610,6 +611,7 @@ if (isDirectExecution) {
     "package.json",
     "extra-types/package.json",
     "shared/package.json",
+    "prompts/package.json",
     "webview-ui/package.json",
     "agentic/package.json",
     "vscode/core/package.json",

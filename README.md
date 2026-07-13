@@ -1,11 +1,11 @@
-# MTA VSCode Extension (Release-0.2 Build)
+# MTA VSCode Extension (Release-0.6 Build)
 
-This repository contains the build configuration and scripts to create Migration Toolkit for Applications (MTA) branded VSCode extensions based on the `release-0.2` branch of `konveyor/editor-extensions`.
+This repository contains the build configuration and scripts to create Migration Toolkit for Applications (MTA) branded VSCode extensions based on the `release-0.6` branch of `konveyor/editor-extensions`.
 
 ## Overview
 
 This implements a "pointer build" strategy where:
-- We track a specific commit from `konveyor/editor-extensions` release-0.2 branch
+- We track a specific commit from `konveyor/editor-extensions` release-0.6 branch
 - We apply MTA branding during the build process via prebuild hooks
 - We produce `mta-vscode-extension` VSIX files ready for distribution
 
@@ -43,16 +43,16 @@ The main configuration file that defines:
 
 ### Updating Upstream Reference
 
-To update to a newer commit from release-0.2:
+To update to a newer commit from release-0.6:
 
 ```bash
-./scripts/update-upstream.sh release-0.2
+./scripts/update-upstream.sh release-0.6
 ```
 
 To use a specific tag:
 
 ```bash
-./scripts/update-upstream.sh v0.2.1
+./scripts/update-upstream.sh v0.6.1
 ```
 
 ## Development Workflow
@@ -88,7 +88,7 @@ Install the resulting `.vsix` in VSCode to verify branding.
 
 The `.github/workflows/ci.yml` workflow:
 
-1. **Triggers**: On push to `release-0.2` branch, PRs, or manual dispatch
+1. **Triggers**: On push to `release-*` branch, PRs, or manual dispatch
 2. **Process**: Pull upstream → Apply branding → Build → Package → Test
 3. **Artifacts**: Uploads `.vsix` files
 4. **Publishing**:
@@ -152,13 +152,14 @@ node --version  # Should be 18+
 
 ## Architecture Notes
 
-This release-0.2 build targets the **single-extension** architecture of the upstream release-0.2 branch, which has:
+This release-0.6 build targets the **multi-extension** architecture:
 
-- Single extension at `vscode/package.json`
-- Simpler build process (no multi-extension complexity)
-- Different dependency versions than main branch
+- Core extension at `vscode/core/`
+- Language extensions at `vscode/java/`, `vscode/javascript/`, `vscode/go/`, `vscode/csharp/`
+- Extension pack at `vscode/konveyor/`
+- Shared packages: `shared/`, `prompts/`, `agentic/`, `webview-ui/`
 
-This is in contrast to the `main` branch which uses a multi-extension architecture.
+The prebuild step transforms all 6 extensions from Konveyor branding to MTA branding.
 
 ## Contributing
 
