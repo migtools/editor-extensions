@@ -1,11 +1,11 @@
-# MTA VSCode Extension (Release-0.6 Build)
+# MTA VSCode Extension (Release-0.8 Build)
 
-This repository contains the build configuration and scripts to create Migration Toolkit for Applications (MTA) branded VSCode extensions based on the `release-0.6` branch of `konveyor/editor-extensions`.
+This repository contains the build configuration and scripts to create Migration Toolkit for Applications (MTA) branded VSCode extensions based on the `release-0.8` branch of `konveyor/editor-extensions`.
 
 ## Overview
 
 This implements a "pointer build" strategy where:
-- We track a specific commit from `konveyor/editor-extensions` release-0.6 branch
+- We track a specific commit from `konveyor/editor-extensions` release-0.8 branch
 - We apply MTA branding during the build process via prebuild hooks
 - We produce `mta-vscode-extension` VSIX files ready for distribution
 
@@ -43,16 +43,16 @@ The main configuration file that defines:
 
 ### Updating Upstream Reference
 
-To update to a newer commit from release-0.6:
+To update to a newer commit from release-0.8:
 
 ```bash
-./scripts/update-upstream.sh release-0.6
+./scripts/update-upstream.sh release-0.8
 ```
 
 To use a specific tag:
 
 ```bash
-./scripts/update-upstream.sh v0.6.1
+./scripts/update-upstream.sh v0.8.0
 ```
 
 ## Development Workflow
@@ -152,7 +152,7 @@ node --version  # Should be 18+
 
 ## Architecture Notes
 
-This release-0.6 build targets the **multi-extension** architecture:
+This release-0.8 build targets the **multi-extension** architecture:
 
 - Core extension at `vscode/core/`
 - Language extensions at `vscode/java/`, `vscode/javascript/`, `vscode/go/`, `vscode/csharp/`

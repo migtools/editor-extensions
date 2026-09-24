@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 // ─── MTA Branding Constants ─────────────────────────────────────────────────
 
-export const extensionVersion = "8.2.0";
+export const extensionVersion = "8.3.0";
 export const publisher = "redhat";
 export const author = "Red Hat";
 export const shortName = "MTA";
