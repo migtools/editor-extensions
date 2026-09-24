@@ -420,27 +420,26 @@ jobs:
 
       - name: Set VSIX paths
         id: set_vsix_paths
-        run: |
-          echo "Found VSIX files:"
-          find ./artifacts -name "*.vsix" -ls
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const files = fs.readdirSync('./artifacts', { withFileTypes: true })
+              .filter(entry => entry.isFile())
+              .map(entry => entry.name);
 
-          # Find each extension VSIX based on MTA naming convention
-          CORE_VSIX=$(ls ./artifacts/mta-core-*.vsix 2>/dev/null | head -n 1)
-          JAVA_VSIX=$(ls ./artifacts/mta-java-*.vsix 2>/dev/null | head -n 1)
-          JS_VSIX=$(ls ./artifacts/mta-javascript-*.vsix 2>/dev/null | head -n 1)
-          GO_VSIX=$(ls ./artifacts/mta-go-*.vsix 2>/dev/null | head -n 1)
-          CSHARP_VSIX=$(ls ./artifacts/mta-csharp-*.vsix 2>/dev/null | head -n 1)
-
-          # Verify and output
-          for vsix in "$CORE_VSIX" "$JAVA_VSIX" "$JS_VSIX" "$GO_VSIX" "$CSHARP_VSIX"; do
-            [ ! -f "$vsix" ] && echo "Error: VSIX not found: $vsix" && exit 1
-          done
-
-          echo "core_vsix=${CORE_VSIX}" >> $GITHUB_OUTPUT
-          echo "java_vsix=${JAVA_VSIX}" >> $GITHUB_OUTPUT
-          echo "javascript_vsix=${JS_VSIX}" >> $GITHUB_OUTPUT
-          echo "go_vsix=${GO_VSIX}" >> $GITHUB_OUTPUT
-          echo "csharp_vsix=${CSHARP_VSIX}" >> $GITHUB_OUTPUT
+            for (const extension of ['core', 'java', 'javascript', 'go', 'csharp']) {
+              const suffix = extension === 'csharp' ? '@linux-x64.vsix' : '.vsix';
+              const matches = files.filter(name =>
+                name.startsWith(`mta-${extension}-`) && name.endsWith(suffix)
+              );
+              if (matches.length !== 1) {
+                throw new Error(`Expected one ${extension} VSIX matching ${suffix}, found ${matches.length}`);
+              }
+              const vsixPath = `artifacts/${matches[0]}`;
+              core.info(`${extension}: ${vsixPath}`);
+              core.setOutput(`${extension}_vsix`, vsixPath);
+            }
 
       - name: Run e2e tests (Linux)
         run: npx playwright test e2e/tests/base/configure-and-run-analysis.test.ts
