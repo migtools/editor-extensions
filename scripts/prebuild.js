@@ -17,7 +17,7 @@ export const shortName = "MTA";
 export const repositoryUrl = "https://github.com/migtools/editor-extensions";
 export const bugsUrl = "https://github.com/migtools/editor-extensions/issues";
 export const homepageUrl = "https://developers.redhat.com/products/mta/overview";
-export const fallbackAssetsUrl = "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.2.0/"
+export const fallbackAssetsUrl = "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.3.0/"
 
 // ─── PRE-RELEASE ASSET HANDLING (uncomment for next pre-release cycle) ──────
 // To use candidate/internal assets during pre-release, uncomment the following
