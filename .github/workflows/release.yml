@@ -95,6 +95,9 @@ jobs:
         with:
           node-version-file: ".nvmrc"
 
+      - name: Install publishing dependencies
+        run: npm ci --ignore-scripts
+
       - name: Publish to VS Code Marketplace
         if: ${{ inputs.prerelease == false }}
         run: |
@@ -102,9 +105,9 @@ jobs:
           while IFS= read -r VSIX_FILE; do
             echo "Publishing $(basename "$VSIX_FILE")..."
             if [ -f "./artifacts/release.md" ]; then
-              npx @vscode/vsce publish --skip-duplicate --packagePath "$VSIX_FILE" --changelog-path "./artifacts/release.md"
+              ./node_modules/.bin/vsce publish --skip-duplicate --packagePath "$VSIX_FILE" --changelog-path "./artifacts/release.md"
             else
-              npx @vscode/vsce publish --skip-duplicate --packagePath "$VSIX_FILE"
+              ./node_modules/.bin/vsce publish --skip-duplicate --packagePath "$VSIX_FILE"
             fi
             echo "✅ Published $(basename "$VSIX_FILE")"
           done <<< "${{ steps.vsix_info.outputs.vsix_files }}"
@@ -117,7 +120,7 @@ jobs:
           echo "Publishing all extensions to Open VSX Registry..."
           while IFS= read -r VSIX_FILE; do
             echo "Publishing $(basename "$VSIX_FILE")..."
-            npx ovsx publish --skip-duplicate "$VSIX_FILE" --pat "$OVSX_PAT"
+            ./node_modules/.bin/ovsx publish --skip-duplicate --packagePath "$VSIX_FILE" --pat "$OVSX_PAT"
             echo "✅ Published $(basename "$VSIX_FILE")"
           done <<< "${{ steps.vsix_info.outputs.vsix_files }}"
         env:

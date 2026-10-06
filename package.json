@@ -10,5 +10,9 @@
   },
   "dependencies": {
     "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.7.1",
+    "ovsx": "^1.2.0"
   }
 }
