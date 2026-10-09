@@ -6,7 +6,7 @@ Status: implemented. Drafts are generated during release preparation, reviewed i
 
 Each MTA extension ships a useful changelog headed by its MTA version. The extension pack aggregates all user-facing changes. GitHub release notes come from the same release records, so Marketplace, Open VSX, downloaded VSIX files, and GitHub describe the same release.
 
-This follow-up backfills 8.3.0 and 8.3.1 in future packages. Already published tags and packages remain historical artifacts; the next patch release carries the corrected changelog history.
+This follow-up bundles every stable MTA release from 8.0.0 through 8.3.1 in future packages. Already published tags and packages remain historical artifacts; the next patch release carries the corrected changelog history.
 
 ## Findings
 
@@ -28,7 +28,7 @@ Add one committed YAML record per MTA release under `release-notes/`, starting w
 
 Historical dates use the actual publication dates. Future preparation supplies an explicit date; rendering never uses the build clock. Same-pin releases are valid and can contain downstream-only changes.
 
-The initial history begins with 8.3.0. For earlier releases, include a link to historical release notes rather than relabeling upstream history with guessed MTA versions.
+History through 8.2.1 is manually curated in `release-notes/history.md` using actual MTA tags, publication dates, and upstream pins. It describes shared MTA product history, including the earlier combined extension, and is included in every bundled changelog. The YAML records begin at 8.3.0 and are used for future release drafts. Rendering validates the join, version order, and dates between the older history and newer records.
 
 ## One release-note module
 
@@ -61,6 +61,7 @@ The first backfill needs editorial review of 8.3.0's broader change range. The 8
 - When a language extension shares a version bump without language-specific changes, state that explicitly and link to the shared core/pack notes.
 - Include source links and upstream provenance without claiming that an upstream version numerically corresponds to an MTA version.
 - Rendering is deterministic and idempotent. It does not modify reviewed records or delete upstream fragments.
+- Append the curated 8.0/8.1/8.2 history after the generated 8.3-and-later sections so every VSIX has the complete stable MTA history.
 
 ## Packaging and publishing integration
 

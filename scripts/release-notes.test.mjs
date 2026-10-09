@@ -34,6 +34,11 @@ function fixture(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const workspace = path.join(root, "upstream");
   fs.mkdirSync(workspace);
+  fs.mkdirSync(path.join(root, "release-notes"));
+  fs.writeFileSync(
+    path.join(root, "release-notes/history.md"),
+    "Shared MTA history.\n\n## [8.2.1] - 2026-08-07\n\n- Historical Hub fix.\n\n## [8.1.0] - 2026-03-26\n\n- Language extensions.\n\n## [8.0.0] - 2025-09-30\n\n- Initial release.\n",
+  );
   const git = (...args) =>
     execFileSync("git", ["-C", workspace, ...args], {
       encoding: "utf8",
@@ -144,6 +149,18 @@ test("pending fragments become MTA-versioned notes with correct targets and dete
   f.second();
   const first = renderReleaseNotes(f);
   assert.deepEqual(renderReleaseNotes(f), first);
+  for (const extension of Object.keys(extensions)) {
+    const changelog = first[`vscode/${extension}/CHANGELOG.md`];
+    for (const version of ["8.3.1", "8.3.0", "8.2.1", "8.1.0", "8.0.0"]) {
+      assert.ok(
+        changelog.includes(`## [${version}]`),
+        `${extension}: missing ${version}`,
+      );
+    }
+    assert.ok(
+      changelog.indexOf("## [8.3.1]") < changelog.indexOf("## [8.0.0]"),
+    );
+  }
   assert.match(first["vscode/core/CHANGELOG.md"], /\[8\.3\.1\].*2026-10-08/);
   assert.match(
     first["vscode/core/CHANGELOG.md"],
@@ -156,6 +173,7 @@ test("pending fragments become MTA-versioned notes with correct targets and dete
   assert.match(first["vscode/konveyor/CHANGELOG.md"], /Fix core connections/);
   assert.match(first["release.md"], /Fix Java analysis/);
   assert.doesNotMatch(first["release.md"], /Fix core connections/);
+  assert.doesNotMatch(first["release.md"], /Historical Hub fix/);
   await checkReleaseNotes({
     ...f,
     notes: path.join(f.workspace, "release.md"),
@@ -377,6 +395,24 @@ test("workspace checks reject stale notes and stable tag mismatches while allowi
   );
   f.write("vscode/core/CHANGELOG.md", "Upstream notes only");
   await assert.rejects(checkReleaseNotes(f), /stale or missing MTA notes/);
+});
+
+test("curated history is required and cannot overlap newer records or have out-of-order dates", async (t) => {
+  const f = fixture(t);
+  f.first();
+  f.second();
+  const file = path.join(f.root, "release-notes/history.md");
+  const original = fs.readFileSync(file, "utf8");
+  for (const [content, error] of [
+    [original.replace("[8.2.1]", "[8.3.0]"), /must end at/],
+    [original + "\n## [8.3.1] - 2026-10-08\n", /duplicate or out-of-order/],
+    [original.replace("2026-03-26", "2026-09-01"), /out-of-order dates/],
+  ]) {
+    fs.writeFileSync(file, content);
+    await assert.rejects(checkReleaseNotes({ root: f.root }), error);
+  }
+  fs.rmSync(file);
+  await assert.rejects(checkReleaseNotes({ root: f.root }), /Missing curated/);
 });
 
 test("all eleven packaged changelogs and manifest assets are verified, including six C# targets", async (t) => {

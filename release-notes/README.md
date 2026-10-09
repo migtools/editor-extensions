@@ -4,6 +4,14 @@ The YAML records in this directory are the reviewed source for the changelogs in
 MTA VSIX and for the GitHub release body. Rendering uses committed records and does not query
 GitHub or reinterpret upstream history during a release build.
 
+`history.md` contains the manually curated stable MTA history from 8.0.0 through 8.2.1.
+It is included unchanged in every bundled changelog, with an explanation that these entries
+describe shared MTA product history, including the earlier combined extension. Correct older
+wording in that file; use versioned YAML records for releases from 8.3.0 onward. The renderer
+checks the join between the curated history and the newer records, their order, and their dates.
+GitHub release bodies contain the current release's entry; VSIX changelogs contain the complete
+history.
+
 For the next release:
 
 1. Update the upstream SHA in `mta-build.yaml` and the MTA version in `package.json`,
@@ -54,6 +62,6 @@ Stable tags must match the configured MTA version and the reviewed record. Devel
 may append `-dev.*` to that version and retain its reviewed history. Other prerelease versions
 are rejected until an explicit record format and release policy are added.
 
-History begins at 8.3.0. The 8.3.0 and 8.3.1 records backfill the actual published versions;
-corrected historical notes reach the registries in a future patch release. Published packages
-and tags are not rewritten.
+The 8.3.0 and 8.3.1 records backfill the actual published versions alongside the curated older
+history. Corrected historical notes reach the registries in a future patch release. Published
+packages and tags are not rewritten.

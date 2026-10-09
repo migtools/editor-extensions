@@ -197,7 +197,40 @@ function releaseContext(root, version) {
       current.upstream.to === config.upstream.ref,
     "Release record does not match configured upstream pin",
   );
+  const historyPath = path.join(root, "release-notes/history.md");
+  requireValue(
+    fs.existsSync(historyPath),
+    "Missing curated MTA release history",
+  );
+  const history = fs.readFileSync(historyPath, "utf8");
+  const historical = [
+    ...history.matchAll(/^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$/gm),
+  ];
+  requireValue(
+    historical.length > 0 && historical[0][1] === records[0].previous,
+    "Curated history must end at the release preceding the first record",
+  );
+  const versions = new Set(records.map((record) => record.version));
+  let precedingVersion = records[0].version;
+  let precedingDate = records[0].date;
+  for (const [, historicalVersion, date] of historical) {
+    requireValue(
+      !versions.has(historicalVersion) &&
+        compareVersions(historicalVersion, precedingVersion) < 0,
+      "Curated history has duplicate or out-of-order versions",
+    );
+    requireValue(
+      !Number.isNaN(Date.parse(date)) &&
+        new Date(date).toISOString().slice(0, 10) === date &&
+        date <= precedingDate,
+      "Curated history has invalid or out-of-order dates",
+    );
+    versions.add(historicalVersion);
+    precedingVersion = historicalVersion;
+    precedingDate = date;
+  }
   return {
+    history,
     records: records.filter(
       (record) => compareVersions(record.version, version) <= 0,
     ),
@@ -236,7 +269,8 @@ function outputs(context) {
         .reverse()
         .map((record) => section(record, extension))
         .join("") +
-      "[Earlier MTA releases](https://github.com/migtools/editor-extensions/releases).\n";
+      context.history.trim() +
+      "\n";
   }
   files["release.md"] =
     `# MTA ${context.current.version}\n\n${section(context.current, "konveyor")}` +
