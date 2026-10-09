@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import https from "https";
 import { fileURLToPath } from "url";
+import { renderReleaseNotes } from "./release-notes.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -668,6 +669,9 @@ if (isDirectExecution) {
 
   // 5. Copy branding assets
   copyBrandingAssets();
+
+  renderReleaseNotes({ root: path.join(__dirname, ".."), workspace: path.join(__dirname, ".."), version: extensionVersion });
+  console.log("  ✅ Rendered MTA-versioned changelogs and release notes");
 
   console.log("\n✅ MTA prebuild complete — all 6 extensions branded.");
 }

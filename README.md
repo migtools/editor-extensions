@@ -72,6 +72,12 @@ To use a specific tag:
 
 ### Testing
 
+MTA changelogs and GitHub release notes come from reviewed records in
+[`release-notes/`](release-notes/README.md). Generate and review a record with each
+upstream/version bump, then run `npm test` and `npm run release-notes:check`.
+The build overlay renders the records before packaging, and CI checks the changelog
+contents and manifest assets in all 11 VSIX files.
+
 Test the full build process:
 
 ```bash

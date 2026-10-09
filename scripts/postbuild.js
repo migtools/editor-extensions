@@ -3,6 +3,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { checkReleaseNotes } from "./release-notes.mjs";
 import {
   extensionVersion,
   publisher,
@@ -13,6 +14,9 @@ import {
 } from "./prebuild.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+await checkReleaseNotes({ root: path.join(__dirname, ".."), workspace: path.join(__dirname, ".."), version: extensionVersion });
+console.log("✅ MTA release notes match the configured version and upstream pin");
 
 // MTA extension names (must match prebuild.js)
 const CORE_NAME = "mta-core";

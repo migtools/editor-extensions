@@ -130,6 +130,23 @@ if (fs.existsSync(postbuildSource)) {
   console.log("  ✅ Copied postbuild.js to scripts/");
 }
 
+fs.copyFileSync(
+  path.join(rootDir, "scripts/release-notes.mjs"),
+  path.join(workspaceDir, "scripts/release-notes.mjs"),
+);
+fs.cpSync(path.join(rootDir, "release-notes"), path.join(workspaceDir, "release-notes"), {
+  recursive: true,
+});
+console.log("  ✅ Copied release-note module and reviewed records");
+
+// Upstream's optional lifecycle hooks swallow failures with `|| echo`.
+// Make the MTA hooks mandatory in our generated workspace.
+const workspacePackagePath = path.join(workspaceDir, "package.json");
+const workspacePackage = JSON.parse(fs.readFileSync(workspacePackagePath, "utf8"));
+workspacePackage.scripts.prebuild = "node scripts/prebuild.js";
+workspacePackage.scripts.postbuild = "node scripts/postbuild.js";
+fs.writeFileSync(workspacePackagePath, JSON.stringify(workspacePackage, null, 2));
+
 // Copy assets directory
 const assetsSource = path.join(rootDir, "assets");
 const assetsTarget = path.join(workspaceDir, "assets");
