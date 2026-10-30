@@ -22,7 +22,7 @@ For the next release:
 3. Generate a draft with an explicit planned release date:
 
    ```bash
-   npm run release-notes:prepare -- --version 8.3.3 --date YYYY-MM-DD
+   npm run release-notes:prepare -- --version 8.3.4 --date YYYY-MM-DD
    ```
 
 4. Review every item in `review`. Rewrite descriptions for MTA users, verify extension targets,
@@ -55,7 +55,7 @@ For a local package preview:
 npm run release-notes:render -- --workspace .upstream-workspace
 npm run release-notes:check -- --workspace .upstream-workspace
 # After npm run dist and npm run package inside the workspace:
-npm run release-notes:check -- --dist .upstream-workspace/dist --notes .upstream-workspace/release.md --tag v8.3.2
+npm run release-notes:check -- --dist .upstream-workspace/dist --notes .upstream-workspace/release.md --tag v8.3.3
 ```
 
 Stable tags must match the configured MTA version and the reviewed record. Development packages
