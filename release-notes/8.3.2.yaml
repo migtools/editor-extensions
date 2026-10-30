@@ -7,7 +7,7 @@ upstream:
   to: a465cff583ce30fde77aabaa9adf4dd2cda92a47
 entries:
   - kind: enhancement
-    description: Bundle released Konveyor 0.11.0 language providers and supporting assets.
+    description: Bundle GA language-provider binaries and supporting assets.
     extensions:
       - core
       - java
