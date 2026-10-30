@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { stringify } from "yaml";
-import { collectRulesets } from "./mta-collect-assets.mjs";
+import { assetCollectionArgs, collectRulesets } from "./mta-collect-assets.mjs";
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mta-rulesets-test-"));
@@ -14,6 +14,7 @@ function fixture(t) {
   fs.writeFileSync(
     path.join(root, "mta-build.yaml"),
     stringify({
+      runtimeAssets: { releaseTag: "v0.11.0" },
       rulesets: {
         repository: "konveyor/rulesets",
         ref,
@@ -74,6 +75,17 @@ function fixture(t) {
     archive,
   };
 }
+
+test("provider collection defaults to the configured GA release and forwards CLI options", (t) => {
+  const { root } = fixture(t);
+  assert.deepEqual(
+    assetCollectionArgs({
+      root,
+      args: ["--use-release", "--ruleset-org", "konveyor"],
+    }),
+    ["--release-tag", "v0.11.0", "--use-release", "--ruleset-org", "konveyor"],
+  );
+});
 
 test("pinned rulesets replace beta rules in every language and preview without changing providers", async (t) => {
   const f = fixture(t);

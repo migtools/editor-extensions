@@ -7,6 +7,18 @@ upstream:
   to: a465cff583ce30fde77aabaa9adf4dd2cda92a47
 entries:
   - kind: enhancement
+    description: Bundle released Konveyor 0.11.0 language providers and supporting assets.
+    extensions:
+      - core
+      - java
+      - javascript
+      - go
+      - csharp
+    source:
+      id: downstream:mta-8.3.2-provider-assets
+      key: 53e86314f1143ef2c3d7c4c1e348d1fc52feb1655f099414fefafa1c44b770e4
+      url: https://github.com/migtools/editor-extensions/pull/52
+  - kind: enhancement
     description: Update bundled migration rules, including Spring Boot 4, Spring Framework 7, OpenJDK 7 to 8, and current Quarkus targets.
     extensions:
       - core

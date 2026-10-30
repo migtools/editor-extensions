@@ -43,9 +43,11 @@ The main configuration file that defines:
 
 Rulesets are pinned separately in `mta-build.yaml` to an immutable commit from
 `konveyor/rulesets`'s `release-0.11` branch, the MTA 8.3 stream. The MTA asset
-collector replaces upstream's beta seed rules with that pin for Java, JavaScript,
-Go, C#, and the core preview rules, while preserving the provider-binary releases.
-It records the ruleset commit and archive checksum in the packaged asset metadata.
+collector replaces upstream's seed rules with that pin for Java, JavaScript,
+Go, C#, and the core preview rules.
+`runtimeAssets.releaseTag` selects the released Konveyor 0.11.0 provider and supporting
+assets. The collector records the ruleset commit and archive checksum in the packaged
+asset metadata.
 
 ### Updating Upstream Reference
 

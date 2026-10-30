@@ -21,6 +21,14 @@ const destinations = {
   preview: "rulesets",
 };
 
+export function assetCollectionArgs({ root = projectRoot, args = [] } = {}) {
+  const { runtimeAssets } = parse(
+    fs.readFileSync(path.join(root, "mta-build.yaml"), "utf8"),
+  );
+  assert.match(runtimeAssets?.releaseTag ?? "", /^v\d+\.\d+\.\d+$/);
+  return ["--release-tag", runtimeAssets.releaseTag, ...args];
+}
+
 export async function collectRulesets({
   root = projectRoot,
   archivePath,
@@ -133,12 +141,12 @@ if (
   process.argv[1] &&
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  // Preserve upstream provider pins and forward all asset-collection CLI options.
+  // Default to the configured GA assets and forward explicit upstream CLI options.
   execFileSync(
     process.execPath,
     [
       path.join(projectRoot, "scripts/collect-assets.js"),
-      ...process.argv.slice(2),
+      ...assetCollectionArgs({ args: process.argv.slice(2) }),
     ],
     { cwd: projectRoot, stdio: "inherit" },
   );
