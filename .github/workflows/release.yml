@@ -25,21 +25,9 @@ env:
   HUSKY: 0
 
 jobs:
-  generate_changelog:
-    name: Generate Changelog
-    uses: konveyor/release-tools/.github/workflows/generate-changelog.yml@main
-    with:
-      version: ${{ inputs.tag_name }}
-      prev_version: $(gh api repos/${{ github.repository }}/releases/latest | jq -r '.tag_name')
-      repository: ${{ github.repository }}
-      ref: ${{ github.sha }}
-    secrets:
-      token: ${{ secrets.GITHUB_TOKEN }}
-
   release:
     name: Final Release
     runs-on: ubuntu-latest
-    needs: generate_changelog
     steps:
       - name: Add release details to the step summary
         run: |
@@ -98,17 +86,19 @@ jobs:
       - name: Install publishing dependencies
         run: npm ci --ignore-scripts
 
+      - name: Verify release notes and packaged changelogs
+        run: |
+          npm run release-notes:check -- --dist ./artifacts --notes ./artifacts/release.md --tag "$MTA_TAG"
+        env:
+          MTA_TAG: ${{ inputs.tag_name }}
+
       - name: Publish to VS Code Marketplace
         if: ${{ inputs.prerelease == false }}
         run: |
           echo "Publishing all extensions to VS Code Marketplace..."
           while IFS= read -r VSIX_FILE; do
             echo "Publishing $(basename "$VSIX_FILE")..."
-            if [ -f "./artifacts/release.md" ]; then
-              ./node_modules/.bin/vsce publish --skip-duplicate --packagePath "$VSIX_FILE" --changelog-path "./artifacts/release.md"
-            else
-              ./node_modules/.bin/vsce publish --skip-duplicate --packagePath "$VSIX_FILE"
-            fi
+            ./node_modules/.bin/vsce publish --skip-duplicate --packagePath "$VSIX_FILE"
             echo "✅ Published $(basename "$VSIX_FILE")"
           done <<< "${{ steps.vsix_info.outputs.vsix_files }}"
         env:

@@ -1,0 +1,96 @@
+version: 8.3.0
+date: 2026-10-06
+previous: 8.2.1
+upstream:
+  repository: konveyor/editor-extensions
+  from: 1eaac3c6d31332b12770606e7bfe77c5d295b15d
+  to: 14fcd6e258f1beca3b196cb0077b65c67a92d885
+entries:
+  - kind: bugfix
+    description: Re-sync Hub analysis profiles correctly when their existing files are read-only.
+    extensions:
+      - core
+    source:
+      id: fragment:changes/unreleased/1484-resync-over-readonly-profile.yaml
+      key: 5f07203f9a2d4a443c0320e017dccd842ec63638f7c866d73b3c0c2532e1091f
+      url: https://github.com/konveyor/editor-extensions/blob/c27b9c04cdecfefa3d17df677318a513bfac4720/changes/unreleased/1484-resync-over-readonly-profile.yaml
+  - kind: bugfix
+    description: Apply pending inline changes correctly when using Auto Accept on Save.
+    extensions:
+      - core
+    source:
+      id: fragment:changes/unreleased/1488-auto-accept-on-save-uri.yaml
+      key: 20bbc8ff392ae4c588f445ddde0b9d7c97207e2907775d7801077279339b768b
+      url: https://github.com/konveyor/editor-extensions/blob/b098902a4dffda1fdb0e2da12212c2a968e26d7e/changes/unreleased/1488-auto-accept-on-save-uri.yaml
+  - kind: bugfix
+    description: Fix packaging and startup of the bundled C# analyzer provider.
+    extensions:
+      - csharp
+    source:
+      id: fragment:changes/unreleased/fix-csharp-provider-publish-layout.yaml
+      key: c7f4d9f8fde540370ca7e068882fa319acdb9b64a225912fc0e213227270fc60
+      url: https://github.com/konveyor/editor-extensions/blob/2d1aa9893ca4268ee41cd3dc7edd313e1ea7a187/changes/unreleased/fix-csharp-provider-publish-layout.yaml
+  - kind: bugfix
+    description: Distribute C# support as platform-specific packages with the matching bundled analyzer runtime.
+    extensions:
+      - csharp
+    source:
+      id: fragment:changes/unreleased/1494-csharp-vsix-size.yaml
+      key: c3d38d92af5b3500a3ca59c79f06f85519449c365d1057d978bb21759389adbe
+      url: https://github.com/konveyor/editor-extensions/blob/84ec264c34dc09b3eb506b293c693980f21b282b/changes/unreleased/1494-csharp-vsix-size.yaml
+  - kind: feature
+    description: Add native Anthropic API support so Claude models can be configured directly.
+    extensions:
+      - core
+    source:
+      id: fragment:changes/unreleased/1470-native-anthropic-provider.yaml
+      key: 88c2018eb35b7b519b33a85c9e9130686ce3b2c2ad26e5ab4da37049399880d5
+      url: https://github.com/konveyor/editor-extensions/blob/26fe2fdcfe12fd63b8f4108c64759c3b5fec02e3/changes/unreleased/1470-native-anthropic-provider.yaml
+  - kind: bugfix
+    description: Filter custom rule file selections to YAML and skip unsupported files.
+    extensions:
+      - core
+    source:
+      id: fragment:changes/unreleased/580-validate-custom-rules-file-types.yaml
+      key: 92b9c05f76a8380330bd54ee063f5b362b080b32b04e2b22f706b7e839c81395
+      url: https://github.com/konveyor/editor-extensions/blob/2cb894e448aef0983fcd2ed79763e924ac1776a8/changes/unreleased/580-validate-custom-rules-file-types.yaml
+  - kind: bugfix
+    description: Update bundled language analyzer components and rulesets for the current C# provider runtime.
+    extensions:
+      - core
+      - java
+      - javascript
+      - go
+      - csharp
+    source:
+      id: fragment:changes/unreleased/update-analyzer-release-pin.yaml
+      key: ead7f637de98d323fd8fd93bda8d7b5e8273a99d68e9197de47ee078b626c23d
+      url: https://github.com/konveyor/editor-extensions/blob/14fcd6e258f1beca3b196cb0077b65c67a92d885/changes/unreleased/update-analyzer-release-pin.yaml
+excluded:
+  - id: commit:99710a968dc8a3281536eda7570a7c4ba18e18ea
+    reason:
+      "Build, publishing, or test tooling only: :seedling: unbreak vscode-test on VS Code 1.131.0
+      and the changelog check (#1480)"
+  - id: commit:c13d70034a7287013b72046a91524fe3f18b68cb
+    reason:
+      "Build, publishing, or test tooling only: :test_tube: pin minikube to the docker container
+      runtime (#1492)"
+  - id: commit:117681adc6d6cba171faecd059a15184813213ff
+    reason:
+      "Build, publishing, or test tooling only: :seedling: Use locked CLI dependencies for
+      Marketplace and Open VSX publishing (#1496)"
+  - id: commit:e42bcf3f1ba18c59b3d86a1cb1df75e7b01f6c5e
+    reason: "Build, publishing, or test tooling only: :seedling: bump Node from 22.9.0 to 22.23.2 (#1497)"
+  - id: commit:3cf199f135db1ecad63ad76096e5bbd0ce6f10f7
+    reason:
+      "Build, publishing, or test tooling only: :test_tube: give the real-rulesets label test room
+      to run (#1491)"
+  - id: commit:e77c4a43a242a76fb6b56fe843b895877da3acb8
+    reason:
+      "Build, publishing, or test tooling only: :test_tube: Fix token refresh timer overflow in
+      test AuthenticationManager (#1472)"
+  - id: commit:872072f3ea2ae71db11c22a9b9273a8489bb079b
+    reason:
+      "Build, publishing, or test tooling only: :seedling: skip tag builds and expired artifacts
+      when collecting workflow assets (#1498)"
+review: []

@@ -41,6 +41,14 @@ The main configuration file that defines:
 - MTA branding settings (version, publisher, URLs)
 - Asset mappings
 
+Rulesets are pinned separately in `mta-build.yaml` to an immutable commit from
+`konveyor/rulesets`'s `release-0.11` branch, the MTA 8.3 stream. The MTA asset
+collector replaces upstream's seed rules with that pin for Java, JavaScript,
+Go, C#, and the core preview rules.
+`runtimeAssets.releaseTag` selects the released Konveyor 0.11.0 provider and supporting
+assets. The collector records the ruleset commit and archive checksum in the packaged
+asset metadata.
+
 ### Updating Upstream Reference
 
 To update to a newer commit from release-0.8:
@@ -71,6 +79,12 @@ To use a specific tag:
 - **Upstream version**: Use `./scripts/update-upstream.sh`
 
 ### Testing
+
+MTA changelogs and GitHub release notes come from reviewed records in
+[`release-notes/`](release-notes/README.md). Generate and review a record with each
+upstream/version bump, then run `npm test` and `npm run release-notes:check`.
+The build overlay renders the records before packaging, and CI checks the changelog
+contents and manifest assets in all 11 VSIX files.
 
 Test the full build process:
 

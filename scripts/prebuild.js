@@ -4,20 +4,21 @@ import fs from "fs";
 import path from "path";
 import https from "https";
 import { fileURLToPath } from "url";
+import { renderReleaseNotes } from "./release-notes.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ─── MTA Branding Constants ─────────────────────────────────────────────────
 
-export const extensionVersion = "8.3.1";
+export const extensionVersion = "8.3.2";
 export const publisher = "redhat";
 export const author = "Red Hat";
 export const shortName = "MTA";
 export const repositoryUrl = "https://github.com/migtools/editor-extensions";
 export const bugsUrl = "https://github.com/migtools/editor-extensions/issues";
 export const homepageUrl = "https://developers.redhat.com/products/mta/overview";
-export const fallbackAssetsUrl = "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.3.0/"
+export const fallbackAssetsUrl = "https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.3.3/"
 
 // ─── PRE-RELEASE ASSET HANDLING (uncomment for next pre-release cycle) ──────
 // To use candidate/internal assets during pre-release, uncomment the following
@@ -668,6 +669,9 @@ if (isDirectExecution) {
 
   // 5. Copy branding assets
   copyBrandingAssets();
+
+  renderReleaseNotes({ root: path.join(__dirname, ".."), workspace: path.join(__dirname, ".."), version: extensionVersion });
+  console.log("  ✅ Rendered MTA-versioned changelogs and release notes");
 
   console.log("\n✅ MTA prebuild complete — all 6 extensions branded.");
 }

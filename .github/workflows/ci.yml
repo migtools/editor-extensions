@@ -50,6 +50,11 @@ jobs:
       - name: Run lint
         run: npm run lint --if-present
 
+      - name: Test and validate release-note records
+        run: |
+          npm test
+          npm run release-notes:check
+
   build:
     name: Build Extension
     needs: lint
@@ -92,8 +97,8 @@ jobs:
           echo "upstream_sha=${UPSTREAM_SHA}" >> $GITHUB_OUTPUT
           echo "upstream_sha_short=${UPSTREAM_SHA_SHORT}" >> $GITHUB_OUTPUT
 
-          # Get MTA version from core extension package.json
-          MTA_VERSION=$(node -p "require('./vscode/core/package.json').version")
+          # Branding has not run yet; the outer package defines the MTA version.
+          MTA_VERSION=$(node -p "require('../package.json').version")
           echo "mta_version=${MTA_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Display build configuration
@@ -110,6 +115,9 @@ jobs:
       - name: Build extension
         working-directory: ./.upstream-workspace
         run: npm run build
+
+      - name: Verify MTA release notes
+        run: npm run release-notes:check -- --workspace .upstream-workspace
 
       - name: Verify MTA branding applied
         working-directory: ./.upstream-workspace
@@ -181,6 +189,9 @@ jobs:
       - name: Run tests
         run: xvfb-run -a npm test
         working-directory: ./.upstream-workspace
+
+      - name: Verify MTA release notes
+        run: npm run release-notes:check -- --workspace .upstream-workspace
 
   package:
     name: Package Extension
@@ -306,11 +317,41 @@ jobs:
             npm version "$DEV_VERSION" --workspaces --include-workspace-root --no-git-tag-version
           fi
 
+      - name: Verify release version and generate bundled changelogs
+        env:
+          MTA_REF: ${{ github.ref }}
+          MTA_TAG: ${{ github.ref_name }}
+        run: |
+          npm run release-notes:render -- --workspace .upstream-workspace
+          if [[ "$MTA_REF" == refs/tags/v* ]]; then
+            npm run release-notes:check -- --workspace .upstream-workspace --tag "$MTA_TAG"
+          else
+            npm run release-notes:check -- --workspace .upstream-workspace
+          fi
+
       - name: Package extensions
         working-directory: ./.upstream-workspace
         run: |
           npm run dist
           npm run package
+
+      - name: Verify bundled changelogs in every VSIX
+        env:
+          MTA_REF: ${{ github.ref }}
+          MTA_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$MTA_REF" == refs/tags/v* ]]; then
+            npm run release-notes:check -- --dist .upstream-workspace/dist --tag "$MTA_TAG"
+          else
+            npm run release-notes:check -- --dist .upstream-workspace/dist
+          fi
+
+      - name: Upload reviewed release notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog-artifact
+          path: .upstream-workspace/release.md
+          if-no-files-found: error
 
       - name: List packaged extensions
         working-directory: ./.upstream-workspace
@@ -470,7 +511,7 @@ jobs:
     name: Publish Development Build
     needs: [package, e2e-test]
     runs-on: ubuntu-latest
-    if: >
+    if: >-
       ${{
         !failure() &&
         !(github.event_name == 'pull_request' && !github.event.pull_request.merged) &&
@@ -521,7 +562,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: e2e-test
+    needs: [package, e2e-test]
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     uses: ./.github/workflows/release.yml
     with:

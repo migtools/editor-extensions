@@ -1,18 +1,23 @@
 {
   "name": "mta-vscode-extension-builder",
-  "version": "8.3.1",
+  "version": "8.3.2",
   "private": true,
   "description": "Build orchestrator for MTA VSCode extension based on release-0.8",
   "scripts": {
     "pull-upstream": "node scripts/pull-upstream.js",
     "update-upstream": "./scripts/update-upstream.sh",
-    "clean": "rm -rf .upstream-workspace"
+    "clean": "rm -rf .upstream-workspace",
+    "release-notes:prepare": "node scripts/release-notes.mjs prepare",
+    "release-notes:render": "node scripts/release-notes.mjs render",
+    "release-notes:check": "node scripts/release-notes.mjs check",
+    "test": "node --test scripts/*.test.mjs"
   },
   "dependencies": {
     "yaml": "^2.7.0"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.7.1",
-    "ovsx": "^1.2.0"
+    "ovsx": "^1.2.0",
+    "unzipper": "^0.12.3"
   }
 }

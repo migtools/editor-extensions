@@ -1,0 +1,47 @@
+version: 8.3.1
+date: 2026-10-08
+previous: 8.3.0
+upstream:
+  repository: konveyor/editor-extensions
+  from: 14fcd6e258f1beca3b196cb0077b65c67a92d885
+  to: a465cff583ce30fde77aabaa9adf4dd2cda92a47
+entries:
+  - kind: bugfix
+    description:
+      Honor custom CA bundles (CA_BUNDLE) for model provider and Hub connections through
+      HTTPS_PROXY, including HTTPS proxy certificates. Apply ALLOW_INSECURE to the target
+      connection.
+    extensions:
+      - core
+    source:
+      id: fragment:changes/unreleased/1501-proxy-custom-ca.yaml
+      key: 36ad405350b1aa3b25b92618f5184a650c531dabdb07f2bec22f9734927e9b6f
+      url: https://github.com/konveyor/editor-extensions/blob/b16516bc3821ada159121cd652e4fb9fe55ed6cc/changes/unreleased/1501-proxy-custom-ca.yaml
+  - kind: bugfix
+    description:
+      Honor HTTP_PROXY, HTTPS_PROXY, and NO_PROXY in provider-settings.yaml. Provider
+      settings take precedence over inherited proxy settings, and an explicit empty value disables
+      the provider proxy. Hub authentication keeps its inherited routing.
+    extensions:
+      - core
+    source:
+      id: fragment:changes/unreleased/1502-provider-proxy-env.yaml
+      key: c63f2c649a06233d2f2d24a7cb976ca3179334461aa0309bb7343cc8088436ca
+      url: https://github.com/konveyor/editor-extensions/blob/a465cff583ce30fde77aabaa9adf4dd2cda92a47/changes/unreleased/1502-provider-proxy-env.yaml
+  - kind: bugfix
+    description:
+      Fail provider startup health checks within 30 seconds when an endpoint is unreachable.
+      Report DNS, TLS, connection-refused, and timeout errors clearly, and retry provider
+      initialization when Health Check is run after a failed startup.
+    extensions:
+      - core
+    source:
+      id: fragment:changes/unreleased/1503-model-connection-diagnostics.yaml
+      key: ba2a70207447bdeae2a24cabbc4ac6195570502c355a264eecaeef06fa3bf055
+      url: https://github.com/konveyor/editor-extensions/blob/a465cff583ce30fde77aabaa9adf4dd2cda92a47/changes/unreleased/1503-model-connection-diagnostics.yaml
+excluded:
+  - id: commit:bd9ce7e2e556164e0f00bc451581a3f0c811b436
+    reason:
+      "Infrastructure test image pin only: :seedling: pin lightspeed-stack image to unbreak
+      infrastructure e2e tests (#1505) (#1507)"
+review: []

@@ -1,0 +1,55 @@
+version: 8.3.2
+date: 2026-10-30
+previous: 8.3.1
+upstream:
+  repository: konveyor/editor-extensions
+  from: a465cff583ce30fde77aabaa9adf4dd2cda92a47
+  to: a465cff583ce30fde77aabaa9adf4dd2cda92a47
+entries:
+  - kind: enhancement
+    description: Bundle GA language-provider binaries and supporting assets.
+    extensions:
+      - core
+      - java
+      - javascript
+      - go
+      - csharp
+    source:
+      id: downstream:mta-8.3.2-provider-assets
+      key: 53e86314f1143ef2c3d7c4c1e348d1fc52feb1655f099414fefafa1c44b770e4
+      url: https://github.com/migtools/editor-extensions/pull/52
+  - kind: enhancement
+    description: Update bundled migration rules, including Spring Boot 4, Spring Framework 7, OpenJDK 7 to 8, and current Quarkus targets.
+    extensions:
+      - core
+      - java
+      - javascript
+      - go
+      - csharp
+    source:
+      id: downstream:mta-8.3.2-rulesets
+      key: 05d0e21bf78afdd039f8404fbcb59950a85203f7d4b643742ff2d30556cb17e2
+      url: https://github.com/konveyor/rulesets/tree/432825f9c85b28c164e38f5dfd68c8cf8e06be06
+  - kind: bugfix
+    description: Download the MTA 8.3.3 analyzer binaries on all supported platforms.
+    extensions:
+      - core
+    source:
+      id: downstream:mta-8.3.2-analyzer-assets
+      key: 4440fb72e54bed01d5b76995c138f78c959a6577b4b1ac7a3400a50b603ac52e
+      url: https://developers.redhat.com/content-gateway/rest/browse/pub/mta/8.3.3/
+  - kind: enhancement
+    description: Include MTA-versioned release notes and the stable MTA release history in every extension.
+    extensions:
+      - core
+      - java
+      - javascript
+      - go
+      - csharp
+      - konveyor
+    source:
+      id: downstream:mta-8.3.2-release-notes
+      key: 4f53d80a6008f4ac69dc8c995d90622e56bd85684cc8c6a3a6faecff0ca76222
+      url: https://github.com/migtools/editor-extensions/pull/52
+excluded: []
+review: []
