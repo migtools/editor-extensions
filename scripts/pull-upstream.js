@@ -139,12 +139,19 @@ fs.cpSync(path.join(rootDir, "release-notes"), path.join(workspaceDir, "release-
 });
 console.log("  ✅ Copied release-note module and reviewed records");
 
+fs.copyFileSync(
+  path.join(rootDir, "scripts/mta-collect-assets.mjs"),
+  path.join(workspaceDir, "scripts/mta-collect-assets.mjs"),
+);
+
 // Upstream's optional lifecycle hooks swallow failures with `|| echo`.
 // Make the MTA hooks mandatory in our generated workspace.
 const workspacePackagePath = path.join(workspaceDir, "package.json");
 const workspacePackage = JSON.parse(fs.readFileSync(workspacePackagePath, "utf8"));
 workspacePackage.scripts.prebuild = "node scripts/prebuild.js";
 workspacePackage.scripts.postbuild = "node scripts/postbuild.js";
+workspacePackage.scripts["collect-assets"] =
+  "rimraf ./downloaded_assets && node ./scripts/mta-collect-assets.mjs";
 fs.writeFileSync(workspacePackagePath, JSON.stringify(workspacePackage, null, 2));
 
 // Copy assets directory

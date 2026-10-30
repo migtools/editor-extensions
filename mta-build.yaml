@@ -2,3 +2,7 @@ upstream:
   repository: konveyor/editor-extensions
   ref: a465cff583ce30fde77aabaa9adf4dd2cda92a47
   semanticRef: release-0.8
+rulesets:
+  repository: konveyor/rulesets
+  ref: 432825f9c85b28c164e38f5dfd68c8cf8e06be06
+  semanticRef: release-0.11

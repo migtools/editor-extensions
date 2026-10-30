@@ -6,6 +6,18 @@ upstream:
   from: a465cff583ce30fde77aabaa9adf4dd2cda92a47
   to: a465cff583ce30fde77aabaa9adf4dd2cda92a47
 entries:
+  - kind: enhancement
+    description: Update bundled migration rules, including Spring Boot 4, Spring Framework 7, OpenJDK 7 to 8, and current Quarkus targets.
+    extensions:
+      - core
+      - java
+      - javascript
+      - go
+      - csharp
+    source:
+      id: downstream:mta-8.3.2-rulesets
+      key: 05d0e21bf78afdd039f8404fbcb59950a85203f7d4b643742ff2d30556cb17e2
+      url: https://github.com/konveyor/rulesets/tree/432825f9c85b28c164e38f5dfd68c8cf8e06be06
   - kind: bugfix
     description: Download the MTA 8.3.3 analyzer binaries on all supported platforms.
     extensions:

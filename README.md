@@ -41,6 +41,12 @@ The main configuration file that defines:
 - MTA branding settings (version, publisher, URLs)
 - Asset mappings
 
+Rulesets are pinned separately in `mta-build.yaml` to an immutable commit from
+`konveyor/rulesets`'s `release-0.11` branch, the MTA 8.3 stream. The MTA asset
+collector replaces upstream's beta seed rules with that pin for Java, JavaScript,
+Go, C#, and the core preview rules, while preserving the provider-binary releases.
+It records the ruleset commit and archive checksum in the packaged asset metadata.
+
 ### Updating Upstream Reference
 
 To update to a newer commit from release-0.8:
